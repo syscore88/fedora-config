@@ -243,21 +243,6 @@ rm -rf ~/.local/share/{epiphany,decibels,gnome-user-docs,gnome-contacts,gnome-ma
 rm -rf ~/.config/{epiphany,decibels,gnome-user-docs,gnome-contacts,gnome-maps,gnome-weather,evolution}
 rm -rf ~/.cache/{epiphany,decibels,gnome-user-docs,gnome-contacts,gnome-maps,gnome-weather,evolution}
 
-mkdir -p ~/.config
-if [[ -f ~/.config/kwalletrc ]]; then
-    if grep -q "^\[Wallet\]" ~/.config/kwalletrc; then
-        WALLET_SECTION="$(awk '/^\[Wallet\]/{f=1;next} /^\[/{f=0} f' ~/.config/kwalletrc)"
-        sed -i '/^\[Wallet\]/,/^\[/{s/^Enabled=.*/Enabled=false/}' ~/.config/kwalletrc
-        if ! echo "$WALLET_SECTION" | grep -q "^Enabled="; then
-            sed -i '/^\[Wallet\]/a Enabled=false' ~/.config/kwalletrc
-        fi
-    else
-        printf '[Wallet]\nEnabled=false\n' >> ~/.config/kwalletrc
-    fi
-else
-    printf '[Wallet]\nEnabled=false\n' > ~/.config/kwalletrc
-fi
-
 # ==========================================================
 #  ETAP 2/3: INSTALACJA PAKIETÓW I OPROGRAMOWANIA
 # ==========================================================
