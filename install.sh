@@ -243,6 +243,27 @@ rm -rf ~/.local/share/{epiphany,decibels,gnome-user-docs,gnome-contacts,gnome-ma
 rm -rf ~/.config/{epiphany,decibels,gnome-user-docs,gnome-contacts,gnome-maps,gnome-weather,evolution}
 rm -rf ~/.cache/{epiphany,decibels,gnome-user-docs,gnome-contacts,gnome-maps,gnome-weather,evolution}
 
+if rpm -q plasma-desktop &>/dev/null || rpm -q plasma-workspace &>/dev/null; then
+    mkdir -p ~/.config
+    cat > ~/.config/kwalletrc << 'EOF'
+[Wallet]
+Close When Idle=false
+Close on Screensaver=false
+Default Wallet=kdewallet
+Enabled=false
+First Use=false
+Idle Timeout=10
+Launch Manager=false
+Leave Manager Open=false
+Leave Open=true
+Prompt on Open=false
+Use One Wallet=true
+
+[org.freedesktop.secrets]
+apiEnabled=false
+EOF
+fi
+
 # ==========================================================
 #  ETAP 2/3: INSTALACJA PAKIETÓW I OPROGRAMOWANIA
 # ==========================================================
