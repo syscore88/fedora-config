@@ -1,15 +1,11 @@
 #!/bin/bash
 
-# Kolory dla lepszej czytelności / Colors for better readability
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
 YELLOW='\033[1;33m'
 RED='\033[0;31m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
-# =========================================================
-# WYKRYWANIE JĘZYKA SYSTEMU / SYSTEM LANGUAGE DETECTION
-# =========================================================
 DETECTED_LOCALE="${LC_ALL:-${LC_MESSAGES:-${LANG:-}}}"
 if [ -z "$DETECTED_LOCALE" ] && command -v locale &> /dev/null; then
     DETECTED_LOCALE=$(locale 2>/dev/null | grep -m1 '^LANG=' | cut -d= -f2)
@@ -21,9 +17,6 @@ else
     IS_PL=false
 fi
 
-# =========================================================
-# KOMUNIKATY / MESSAGES
-# =========================================================
 if [ "$IS_PL" = true ]; then
     MSG_TITLE="       KOMPLEKSOWY SKRYPT AKTUALIZACJI I CZYSZCZENIA  "
     MSG_ASK_PASS="Proszę podać hasło administratora (sudo):"
@@ -102,18 +95,15 @@ echo -e "${BLUE}======================================================${NC}"
 echo -e "${BLUE}${MSG_TITLE}${NC}"
 echo -e "${BLUE}======================================================${NC}"
 
-# 1. ZAPYTANIE O HASŁO TYLKO RAZ / ASK FOR PASSWORD ONCE
 echo -e "${YELLOW}${MSG_ASK_PASS}${NC}"
 sudo -v
 
-# Utrzymanie aktywnej sesji sudo w tle / Keep the sudo session alive in the background
 while true; do sudo -n true; sleep 60; kill -0 "$$" || exit; done 2>/dev/null &
 SUDO_KEEP_ALIVE_PID=$!
 
 echo -e "\n${GREEN}${MSG_DNF_UPGRADE}${NC}"
 sudo dnf upgrade --refresh -y
 
-# Opcjonalna aktualizacja firmware (często spotykana w Fedorze) / Optional firmware update (common on Fedora)
 FWUPD_RESTART_NEEDED=false
 if command -v fwupdmgr &> /dev/null; then
     echo -e "${GREEN}${MSG_FWUPD_CHECK}${NC}"
@@ -126,7 +116,6 @@ if command -v fwupdmgr &> /dev/null; then
     fi
 fi
 
-# AKTUALIZACJA FLATPAK / FLATPAK UPDATE
 if command -v flatpak &> /dev/null; then
     echo -e "\n${GREEN}${MSG_FLATPAK_UPDATE}${NC}"
     sudo flatpak update --system -y
@@ -149,17 +138,13 @@ sudo journalctl --vacuum-time=7d
 echo -e "${GREEN}${MSG_CLEAN_VARLOG}${NC}"
 sudo find /var/log -type f \( -name "*.gz" -o -name "*.1" \) -delete
 
-# BEZPIECZNE CZYSZCZENIE FLATPAK (SYSTEM) / SAFE FLATPAK CLEANUP (SYSTEM)
 if command -v flatpak &> /dev/null; then
     echo -e "${GREEN}${MSG_FLATPAK_CLEAN_SYS}${NC}"
     sudo flatpak uninstall --unused --system -y
 
-    # Dodatkowe usunięcie danych po odinstalowanych aplikacjach w trybie systemowym
-    # Additional cleanup of leftover data from uninstalled apps (system mode)
     sudo flatpak uninstall --unused --delete-data -y 2>/dev/null
     sudo flatpak repair --system
 
-    # Usuwanie nieużywanych źródeł (remotes) i powiązanego cache / Removing unused remotes and related cache
     USED_REMOTES=$(flatpak list --columns=origin 2>/dev/null | sort -u)
     ALL_REMOTES=$(flatpak remotes --columns=name 2>/dev/null | tail -n +1)
 
@@ -171,12 +156,10 @@ if command -v flatpak &> /dev/null; then
         fi
     done <<< "$ALL_REMOTES"
 
-    # Głębsze czyszczenie śmieci systemowych Flatpaka / Deeper cleanup of Flatpak system leftovers
     echo -e "${GREEN}${MSG_FLATPAK_TMP_HISTORY_SYS}${NC}"
     sudo find /var/lib/flatpak -name "*.tmp" -delete 2>/dev/null
     sudo rm -f /var/lib/flatpak/history 2>/dev/null
 
-    # Inteligentne czyszczenie /var/app (tylko osierocone dane) / Smart /var/app cleanup (orphaned data only)
     echo -e "${GREEN}${MSG_FLATPAK_CLEAN_VARAPP_SYS}${NC}"
     INSTALLED_FLATPAKS=$(flatpak list --app --columns=application 2>/dev/null)
     if [ -d "/var/app" ]; then
@@ -228,15 +211,11 @@ if command -v flatpak &> /dev/null; then
     echo -e "${GREEN}${MSG_FLATPAK_CLEAN_USER}${NC}"
     flatpak uninstall --unused --user -y
 
-    # Dodatkowe usunięcie danych po odinstalowanych aplikacjach w trybie użytkownika
-    # Additional cleanup of leftover data from uninstalled apps (user mode)
     flatpak uninstall --unused --delete-data -y 2>/dev/null || flatpak uninstall --delete-data -y 2>/dev/null
     flatpak repair --user
 
-    # Czyszczenie historii użytkownika / Cleaning user history
     rm -f ~/.local/share/flatpak/history 2>/dev/null
 
-    # Inteligentne czyszczenie ~/.var/app (tylko osierocone dane) / Smart ~/.var/app cleanup (orphaned data only)
     echo -e "${GREEN}${MSG_FLATPAK_CLEAN_VARAPP_USER}${NC}"
     INSTALLED_FLATPAKS=$(flatpak list --app --columns=application 2>/dev/null)
     if [ -d "$HOME/.var/app" ]; then
@@ -267,7 +246,6 @@ echo -e "${BLUE}${MSG_PHASE3_TITLE}${NC}"
 echo -e "${BLUE}======================================================${NC}"
 
 echo -e "${GREEN}${MSG_CHECK_RESTART}${NC}"
-# Sprawdzamy, czy DNF obsługuje wtyczkę needs-restarting / Check if DNF supports the needs-restarting plugin
 if dnf help needs-restarting &> /dev/null; then
     if ! sudo dnf needs-restarting -r -q; then
         echo -e "\n${RED}******************************************************${NC}"
@@ -288,7 +266,6 @@ if [ "$FWUPD_RESTART_NEEDED" = true ]; then
     echo -e "${RED}******************************************************${NC}\n"
 fi
 
-# Zatrzymanie procesu podtrzymującego sudo / Stop the background sudo keep-alive process
 kill $SUDO_KEEP_ALIVE_PID 2>/dev/null
 
 echo -e "\n${GREEN}======================================================${NC}"
