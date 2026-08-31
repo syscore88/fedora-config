@@ -1,0 +1,12 @@
+[Desktop Entry]
+Categories=System;
+Comment=System Maintenance
+Exec=/bin/bash -c "$HOME/.update.sh"
+Icon=system-software-update
+Name[pl_PL]=Konserwacja Systemu
+Name=System Maintenance
+NoDisplay=false
+PrefersNonDefaultGPU=false
+StartupNotify=true
+Terminal=true
+Type=Application
