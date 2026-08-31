@@ -4,6 +4,7 @@
 # ==========================================================
 
 set -euo pipefail
+export PATH="/usr/sbin:/sbin:$PATH"
 
 detect_system_lang() {
     local sys_lang="${LANG:-}"
@@ -108,18 +109,31 @@ if [[ "$EUID" -eq 0 ]]; then
 fi
 
 printf '\033[?7h\n' >&3
-sudo -v
-SUDOERS_TMP="$(mktemp)"
-echo "$CURRENT_USER ALL=(ALL) NOPASSWD: ALL" > "$SUDOERS_TMP"
-chmod 0440 "$SUDOERS_TMP"
-if sudo visudo -cf "$SUDOERS_TMP" &>/dev/null; then
-    sudo install -m 0440 -o root -g root "$SUDOERS_TMP" /etc/sudoers.d/99-temp-installer
-else
-    rm -f "$SUDOERS_TMP"
-    echo -e "${ERR}✖ Nieprawidłowa składnia pliku sudoers – przerywam.${NC}" >&3
-    exit 1
+
+RUN0_NOPASSWD_FILE="/etc/polkit-1/rules.d/51-run0-nopasswd.rules"
+USE_RUN0=0
+if ! command -v visudo >/dev/null 2>&1 || sudo --version 2>/dev/null | grep -qi "run0"; then
+    USE_RUN0=1
 fi
-rm -f "$SUDOERS_TMP"
+
+sudo -v
+
+if [[ "$USE_RUN0" -eq 1 ]]; then
+    printf 'polkit._run0_nopasswd.push("%s");\n' "$CURRENT_USER" | sudo tee "$RUN0_NOPASSWD_FILE" > /dev/null
+    sudo systemctl try-restart polkit 2>/dev/null || true
+else
+    SUDOERS_TMP="$(mktemp)"
+    echo "$CURRENT_USER ALL=(ALL) NOPASSWD: ALL" > "$SUDOERS_TMP"
+    chmod 0440 "$SUDOERS_TMP"
+    if sudo visudo -cf "$SUDOERS_TMP" &>/dev/null; then
+        sudo install -m 0440 -o root -g root "$SUDOERS_TMP" /etc/sudoers.d/99-temp-installer
+    else
+        rm -f "$SUDOERS_TMP"
+        echo -e "${ERR}✖ Nieprawidłowa składnia pliku sudoers – przerywam.${NC}" >&3
+        exit 1
+    fi
+    rm -f "$SUDOERS_TMP"
+fi
 
 printf '\033[?7l' >&3
 
@@ -481,7 +495,12 @@ if command -v zsh &>/dev/null; then
     fi
 fi
 
-sudo rm -f /etc/sudoers.d/99-temp-installer
+if [[ "$USE_RUN0" -eq 1 ]]; then
+    sudo rm -f "$RUN0_NOPASSWD_FILE"
+    sudo systemctl try-restart polkit 2>/dev/null || true
+else
+    sudo rm -f /etc/sudoers.d/99-temp-installer
+fi
 
 show_progress 12 $TOTAL_STEPS "$MSG_PHASE_3"
 echo -e "\n" >&3
