@@ -224,7 +224,7 @@ sudo dnf5 install -y @development-tools @c-development gcc gcc-c++ make || true
 
 TO_REMOVE=(
     nano konqueror plasma-browser-integration plasma-vault krdp krfb
-    plasma-thunderbolt kontact kmail kontrast plasma-welcome
+    plasma-thunderbolt kontact kmail kontrast plasma-welcome showtime
     evolution evolution-common evolution-plugins evolution-ews
     kaddressbook kdepim-runtime akonadi-server akregator korganizer
     epiphany decibels gnome-calendar gnome-clocks gnome-user-docs
@@ -270,7 +270,7 @@ fi
 show_progress 4 $TOTAL_STEPS "$MSG_PHASE_2"
 
 PACKAGES=(
-    google-chrome-stable brave-origin
+    google-chrome-stable brave-origin elisa vlc 
     dconf-editor hunspell-pl fastfetch unrar git mc exfatprogs ntfs-3g vim
     os-prober android-tools fsarchiver inxi pv rsync python3-defusedxml
     python3-packaging python3-pip pipx 7zip zenity innoextract makeself
