@@ -24,6 +24,10 @@ if [ "$IS_PL" = true ]; then
     MSG_FWUPD_CHECK="==> Odświeżanie metadanych i sprawdzanie aktualizacji firmware..."
     MSG_FWUPD_RESTART_NEEDED="UWAGA: Zainstalowano aktualizację firmware wymagającą restartu!"
     MSG_FLATPAK_UPDATE="==> Aktualizacja pakietów Flatpak (System i Użytkownik)..."
+    MSG_GNOME_EXT_UPDATE="==> Aktualizacja rozszerzeń GNOME Shell (gext)..."
+    MSG_GNOME_EXT_ABSENT="==> gext nieobecny w systemie - pomijam aktualizację rozszerzeń GNOME."
+    MSG_CINNAMON_EXT_UPDATE="==> Aktualizacja rozszerzeń/appletów/dekletów/motywów Cinnamon..."
+    MSG_CINNAMON_EXT_ABSENT="==> cinnamon-spice-updater nieobecny w systemie - pomijam aktualizację Cinnamon."
     MSG_PHASE1_TITLE="       FAZA 1: SYSTEM (SUDO)                         "
     MSG_AUTOREMOVE="==> Usuwanie niepotrzebnych zależności (Autoremove)..."
     MSG_DNF_CLEAN="==> Czyszczenie cache DNF..."
@@ -60,6 +64,10 @@ else
     MSG_FWUPD_CHECK="==> Refreshing metadata and checking for firmware updates..."
     MSG_FWUPD_RESTART_NEEDED="WARNING: A firmware update requiring a restart was installed!"
     MSG_FLATPAK_UPDATE="==> Updating Flatpak packages (System and User)..."
+    MSG_GNOME_EXT_UPDATE="==> Updating GNOME Shell extensions (gext)..."
+    MSG_GNOME_EXT_ABSENT="==> gext not present on the system - skipping GNOME extensions update."
+    MSG_CINNAMON_EXT_UPDATE="==> Updating Cinnamon extensions/applets/desklets/themes..."
+    MSG_CINNAMON_EXT_ABSENT="==> cinnamon-spice-updater not present on the system - skipping Cinnamon update."
     MSG_PHASE1_TITLE="       PHASE 1: SYSTEM (SUDO)                        "
     MSG_AUTOREMOVE="==> Removing unnecessary dependencies (Autoremove)..."
     MSG_DNF_CLEAN="==> Cleaning DNF cache..."
@@ -120,6 +128,20 @@ if command -v flatpak &> /dev/null; then
     echo -e "\n${GREEN}${MSG_FLATPAK_UPDATE}${NC}"
     sudo flatpak update --system -y
     flatpak update --user -y
+fi
+
+if command -v gext &> /dev/null; then
+    echo -e "\n${GREEN}${MSG_GNOME_EXT_UPDATE}${NC}"
+    gext update
+else
+    echo -e "\n${YELLOW}${MSG_GNOME_EXT_ABSENT}${NC}"
+fi
+
+if command -v cinnamon-spice-updater &> /dev/null; then
+    echo -e "\n${GREEN}${MSG_CINNAMON_EXT_UPDATE}${NC}"
+    cinnamon-spice-updater --update-all
+else
+    echo -e "\n${YELLOW}${MSG_CINNAMON_EXT_ABSENT}${NC}"
 fi
 
 echo -e "\n${BLUE}======================================================${NC}"
