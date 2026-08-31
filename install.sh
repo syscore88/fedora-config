@@ -270,7 +270,7 @@ fi
 show_progress 4 $TOTAL_STEPS "$MSG_PHASE_2"
 
 PACKAGES=(
-    google-chrome-stable brave-origin elisa vlc 
+    google-chrome-stable brave-origin elisa dragon
     dconf-editor hunspell-pl fastfetch unrar git mc exfatprogs ntfs-3g vim
     os-prober android-tools fsarchiver inxi pv rsync python3-defusedxml
     python3-packaging python3-pip pipx 7zip zenity innoextract makeself
