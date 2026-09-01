@@ -302,6 +302,21 @@ PACKAGES=(
 wait_for_rpm_lock
 sudo dnf5 install -y --skip-unavailable "${PACKAGES[@]}" || true
 
+sudo systemctl disable --now cdemu-daemon 2>/dev/null || true
+sudo systemctl mask cdemu-daemon 2>/dev/null || true
+mkdir -p "$HOME/.config/autostart"
+for f in /etc/xdg/autostart/gcdemu.desktop /etc/xdg/autostart/cdemu.desktop /usr/share/applications/gcdemu.desktop; do
+    if [[ -f "$f" ]]; then
+        cp -f "$f" "$HOME/.config/autostart/$(basename "$f")"
+        if grep -q '^Hidden=' "$HOME/.config/autostart/$(basename "$f")"; then
+            sed -i 's/^Hidden=.*/Hidden=true/' "$HOME/.config/autostart/$(basename "$f")"
+        else
+            echo "Hidden=true" >> "$HOME/.config/autostart/$(basename "$f")"
+        fi
+    fi
+done
+pkill -f gcdemu 2>/dev/null || true
+
 show_progress 5 $TOTAL_STEPS "$MSG_PHASE_2"
 
 PACKAGES_32=(
