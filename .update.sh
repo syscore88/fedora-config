@@ -15,7 +15,7 @@ detect_lang() {
     case "$l" in
         pl_PL*|pl*) echo "pl" ;;
         *) echo "en" ;;
-    esac
+    esac 
 }
 SCRIPT_LANG=$(detect_lang)
 
@@ -29,6 +29,7 @@ if [ "$SCRIPT_LANG" = "pl" ]; then
     MSG_DONE="AKTUALIZACJA I CZYSZCZENIE ZAKOŃCZONE!"
     MSG_RESTART_WARN="UWAGA: Zalecany jest restart komputera"
     MSG_NO_RESTART="Restart systemu nie jest aktualnie wymagany."
+    MSG_PRESS_ENTER="Naciśnij Enter, aby zamknąć okno..."
 else
     MSG_TITLE="         COMPREHENSIVE UPDATE AND CLEANUP SCRIPT       "
     MSG_ASK_PASS="Please enter the administrator (sudo) password:"
@@ -39,6 +40,7 @@ else
     MSG_DONE="UPDATE AND CLEANUP COMPLETE!"
     MSG_RESTART_WARN="WARNING: A system restart is recommended"
     MSG_NO_RESTART="A system restart is not currently required."
+    MSG_PRESS_ENTER="Press Enter to close this window..."
 fi
 
 TMP_LOG="$(mktemp /tmp/update-log.XXXXXX)"
@@ -110,29 +112,19 @@ SUDO_KEEP_ALIVE_PID=$!
 
 REBOOT_NEEDED=false
 FWUPD_RESTART_NEEDED=false
-TOTAL_STEPS=19
+TOTAL_STEPS=21
 STEP=0
 show_progress $STEP $TOTAL_STEPS "$MSG_PHASE_UPDATE"
 
 # ---------------------------------------------------------------
 # PHASE: UPDATE
 # ---------------------------------------------------------------
-sudo dnf upgrade --refresh -y
-STEP=$((STEP+1)); show_progress $STEP $TOTAL_STEPS "$MSG_PHASE_UPDATE"
-
-if command -v fwupdmgr &> /dev/null; then
-    sudo fwupdmgr refresh -y
-    FWUPD_OUT=$(sudo fwupdmgr update -y 2>&1)
-    echo "$FWUPD_OUT"
-    if echo "$FWUPD_OUT" | grep -qiE "restart|reboot"; then
-        FWUPD_RESTART_NEEDED=true
-    fi
-fi
+sudo apt-get update 2>&1 | grep -v "nie obsługuje architektury\|Pomijanie pozyskania skonfigurowanego pliku\|does not support architecture\|Skipping acquire of configured file"
+sudo apt-get dist-upgrade -y
 STEP=$((STEP+1)); show_progress $STEP $TOTAL_STEPS "$MSG_PHASE_UPDATE"
 
 if command -v flatpak &> /dev/null; then
-    sudo flatpak update --system -y
-    flatpak update --user -y
+    flatpak update -y
 fi
 STEP=$((STEP+1)); show_progress $STEP $TOTAL_STEPS "$MSG_PHASE_UPDATE"
 
@@ -144,21 +136,36 @@ STEP=$((STEP+1)); show_progress $STEP $TOTAL_STEPS "$MSG_PHASE_UPDATE"
 if command -v cinnamon-spice-updater &> /dev/null; then
     cinnamon-spice-updater --update-all
 fi
+STEP=$((STEP+1)); show_progress $STEP $TOTAL_STEPS "$MSG_PHASE_UPDATE"
+
+if command -v fwupdmgr &> /dev/null; then
+    sudo fwupdmgr refresh --force
+    FWUPD_OUT=$(sudo fwupdmgr update -y 2>&1)
+    echo "$FWUPD_OUT"
+    if echo "$FWUPD_OUT" | grep -qiE "restart|reboot"; then
+        FWUPD_RESTART_NEEDED=true
+    fi
+fi
 STEP=$((STEP+1)); show_progress $STEP $TOTAL_STEPS "$MSG_PHASE_CLEAN_SYS"
 
 # ---------------------------------------------------------------
 # PHASE: SYSTEM CLEANUP (SUDO)
 # ---------------------------------------------------------------
-sudo dnf autoremove -y
+sudo apt-get autoremove --purge -y
 STEP=$((STEP+1)); show_progress $STEP $TOTAL_STEPS "$MSG_PHASE_CLEAN_SYS"
 
-sudo dnf clean all
+if command -v deborphan &> /dev/null; then
+    sudo apt-get purge $(deborphan) -y 2>/dev/null
+fi
 STEP=$((STEP+1)); show_progress $STEP $TOTAL_STEPS "$MSG_PHASE_CLEAN_SYS"
 
-sudo journalctl --vacuum-time=7d
+sudo apt-key net-update 2>/dev/null
 STEP=$((STEP+1)); show_progress $STEP $TOTAL_STEPS "$MSG_PHASE_CLEAN_SYS"
 
-sudo find /var/log -type f \( -name "*.gz" -o -name "*.1" \) -delete
+sudo apt-get autoclean
+STEP=$((STEP+1)); show_progress $STEP $TOTAL_STEPS "$MSG_PHASE_CLEAN_SYS"
+
+sudo find /etc/apt/sources.list.d/ -type f -name "*.save" -delete
 STEP=$((STEP+1)); show_progress $STEP $TOTAL_STEPS "$MSG_PHASE_CLEAN_SYS"
 
 if command -v flatpak &> /dev/null; then
@@ -167,14 +174,14 @@ if command -v flatpak &> /dev/null; then
     sudo flatpak repair --system
 
     USED_REMOTES=$(flatpak list --columns=origin 2>/dev/null | sort -u)
-    ALL_REMOTES=$(flatpak remotes --columns=name 2>/dev/null | tail -n +1)
+    ALL_REMOTES=$(flatpak remotes --columns=name 2>/dev/null)
     while IFS= read -r remote; do
         if [ -n "$remote" ] && ! echo "$USED_REMOTES" | grep -qx "$remote"; then
-            sudo flatpak remote-delete --force "$remote" 2>/dev/null && \
-            sudo rm -rf /var/tmp/flatpak-cache-* 2>/dev/null
+            sudo flatpak remote-delete --force "$remote" 2>/dev/null
         fi
     done <<< "$ALL_REMOTES"
 
+    sudo rm -rf /var/tmp/flatpak-cache-* 2>/dev/null
     sudo find /var/lib/flatpak -name "*.tmp" -delete 2>/dev/null
     sudo rm -f /var/lib/flatpak/history 2>/dev/null
 
@@ -192,19 +199,21 @@ if command -v flatpak &> /dev/null; then
 fi
 STEP=$((STEP+1)); show_progress $STEP $TOTAL_STEPS "$MSG_PHASE_CLEAN_SYS"
 
+sudo journalctl --vacuum-time=7d
+sudo find /var/log -type f -name "*.gz" -mtime +7 -delete
+sudo find /var/log -type f -name "*.1" -delete
+STEP=$((STEP+1)); show_progress $STEP $TOTAL_STEPS "$MSG_PHASE_CLEAN_SYS"
+
 sudo find /tmp -type f -atime +3 -delete 2>/dev/null
 sudo find /var/tmp -type f -atime +3 -delete 2>/dev/null
 STEP=$((STEP+1)); show_progress $STEP $TOTAL_STEPS "$MSG_PHASE_CLEAN_SYS"
 
 CURRENT_KERNEL=$(uname -r)
-for module_dir in /usr/lib/modules/*; do
-    if [ -d "$module_dir" ]; then
-        version=$(basename "$module_dir")
-        if [ "$version" != "$CURRENT_KERNEL" ] && [ ! -f "/boot/vmlinuz-$version" ]; then
-            sudo rm -rf "$module_dir"
-        fi
-    fi
-done
+KERNEL_PACKAGES=$(dpkg -l | grep -E 'linux-image-[0-9]' | awk '{print $2}' | grep -v "$CURRENT_KERNEL")
+if [ -n "$KERNEL_PACKAGES" ]; then
+    sudo apt-get purge $KERNEL_PACKAGES -y
+    REBOOT_NEEDED=true
+fi
 STEP=$((STEP+1)); show_progress $STEP $TOTAL_STEPS "$MSG_PHASE_CLEAN_USER"
 
 # ---------------------------------------------------------------
@@ -216,17 +225,16 @@ find ~/.cache -type f -atime +14 \
     ! -path "*/chromium/*" \
     ! -path "*/BraveSoftware/*" \
     ! -path "*/opera/*" \
-    -exec rm -f {} + 2>/dev/null
+    -delete 2>/dev/null
 STEP=$((STEP+1)); show_progress $STEP $TOTAL_STEPS "$MSG_PHASE_CLEAN_USER"
 
-find ~/.cache/thumbnails -type f -atime +7 -exec rm -f {} + 2>/dev/null
+find ~/.cache/thumbnails -type f -atime +7 -delete 2>/dev/null
 STEP=$((STEP+1)); show_progress $STEP $TOTAL_STEPS "$MSG_PHASE_CLEAN_USER"
 
 if command -v flatpak &> /dev/null; then
     flatpak uninstall --unused --user -y
     flatpak uninstall --unused --delete-data -y 2>/dev/null || flatpak uninstall --delete-data -y 2>/dev/null
-    flatpak repair --user
-
+    rm -rf ~/.local/share/flatpak/repo/tmp/* 2>/dev/null
     rm -f ~/.local/share/flatpak/history 2>/dev/null
 
     INSTALLED_FLATPAKS=$(flatpak list --app --columns=application 2>/dev/null)
@@ -243,7 +251,7 @@ if command -v flatpak &> /dev/null; then
 fi
 STEP=$((STEP+1)); show_progress $STEP $TOTAL_STEPS "$MSG_PHASE_CLEAN_USER"
 
-fc-cache -r
+fc-cache -fv
 STEP=$((STEP+1)); show_progress $STEP $TOTAL_STEPS "$MSG_PHASE_CLEAN_USER"
 
 USER_ID=$(id -u)
@@ -256,10 +264,8 @@ STEP=$((STEP+1)); show_progress $STEP $TOTAL_STEPS "$MSG_PHASE_RESTART"
 # ---------------------------------------------------------------
 # PHASE: RESTART CHECK
 # ---------------------------------------------------------------
-if dnf help needs-restarting &> /dev/null; then
-    if ! sudo dnf needs-restarting -r -q; then
-        REBOOT_NEEDED=true
-    fi
+if [ -f /var/run/reboot-required ]; then
+    REBOOT_NEEDED=true
 fi
 STEP=$((STEP+1)); show_progress $STEP $TOTAL_STEPS "$MSG_PHASE_RESTART"
 
@@ -275,6 +281,8 @@ echo -e "${GREEN}======================================================${NC}" >&
 
 if [ "$REBOOT_NEEDED" = true ]; then
     echo -e "${YELLOW}${MSG_RESTART_WARN}${NC}" >&3
+    echo -e "${YELLOW}${MSG_PRESS_ENTER}${NC}" >&3
+    read -r
 else
     echo -e "${GREEN}${MSG_NO_RESTART}${NC}" >&3
 fi
