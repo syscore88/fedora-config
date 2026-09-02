@@ -576,14 +576,14 @@ fi
 #  RESTART SYSTEMU
 # ==========================================================
 if [[ "$SCRIPT_LANG" == "pl" ]]; then
-    RESTART_PROMPT="Czy chcesz teraz zrestartować system? [Y/N]: "
+    RESTART_PROMPT="Czy chcesz teraz zrestartować system? [T/N]: "
 else
     RESTART_PROMPT="Do you want to restart the system now? [Y/N]: "
 fi
 echo -en "${INFO}==> ${RESTART_PROMPT}${NC}" >&3
 read -r RESTART_CHOICE < /dev/tty
 case "$RESTART_CHOICE" in
-    [Yy]*)
+    [YyTt]*)
         systemctl reboot
         ;;
     *)
