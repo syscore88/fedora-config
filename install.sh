@@ -11,7 +11,7 @@ detect_system_lang() {
     [[ -z "$sys_lang" ]] && sys_lang="${LC_ALL:-${LC_MESSAGES:-}}"
     if [[ "$sys_lang" == pl* ]]; then
         echo "pl"
-    else
+    else 
         echo "en"
     fi
 }
