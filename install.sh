@@ -441,16 +441,10 @@ firmware='uefi'
 graphics-type='spice'
 storage-format='raw'
 
-[paths]
-media-default='/home/bartek/Pobrane'
-
 [stats]
 enable-disk-poll=true
 enable-memory-poll=true
 enable-net-poll=true
-
-[urls]
-isos=['/var/lib/libvirt/images/archlinux.img', '/home/bartek/Pobrane/archlinux-2026.09.01-x86_64.iso']
 
 [vmlist-fields]
 disk-usage=false
