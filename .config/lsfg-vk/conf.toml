@@ -1,7 +1,7 @@
 version = 1
 
 [global]
-dll = "/home/bartek/.local/share/Steam/Lossless Scaling/Lossless.dll"
+dll = "~/.local/share/Steam/Lossless Scaling/Lossless.dll"
 
 [[game]]
 exe = "user"
