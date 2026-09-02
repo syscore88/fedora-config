@@ -27,7 +27,7 @@ if [ "$SCRIPT_LANG" = "pl" ]; then
     MSG_PHASE_CLEAN_USER="[3/4] Czyszczenie użytkownika..."
     MSG_PHASE_RESTART="[4/4] Sprawdzanie konieczności restartu..."
     MSG_DONE="AKTUALIZACJA I CZYSZCZENIE ZAKOŃCZONE!"
-    MSG_RESTART_WARN="UWAGA: Zalecany jest restart komputera (zaktualizowano kernel/firmware/kluczowe komponenty)."
+    MSG_RESTART_WARN="UWAGA: Zalecany jest restart komputera"
     MSG_NO_RESTART="Restart systemu nie jest aktualnie wymagany."
 else
     MSG_TITLE="         COMPREHENSIVE UPDATE AND CLEANUP SCRIPT       "
@@ -37,15 +37,13 @@ else
     MSG_PHASE_CLEAN_USER="[3/4] User cleanup..."
     MSG_PHASE_RESTART="[4/4] Checking if a restart is needed..."
     MSG_DONE="UPDATE AND CLEANUP COMPLETE!"
-    MSG_RESTART_WARN="WARNING: A system restart is recommended (kernel/firmware/critical components were updated)."
+    MSG_RESTART_WARN="WARNING: A system restart is recommended"
     MSG_NO_RESTART="A system restart is not currently required."
 fi
 
 TMP_LOG="$(mktemp /tmp/update-log.XXXXXX)"
 LOG_FILE="$HOME/update_error_$(date +%Y%m%d_%H%M%S).log"
 
-# fd 3 = real terminal (progress bar / final messages only).
-# stdout+stderr of everything else is redirected into the log file.
 exec 3>&1
 exec >>"$TMP_LOG" 2>&1
 
