@@ -184,7 +184,7 @@ for DNF_CONF in /etc/dnf/dnf.conf /etc/dnf/dnf5.conf; do
 done
 
 wait_for_rpm_lock
-for pkg in wget curl pciutils; do
+for pkg in wget curl pciutils dconf; do
     sudo dnf5 install -y "$pkg" || true
 done
 
