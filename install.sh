@@ -498,12 +498,6 @@ sudo flatpak install -y flathub it.mijorus.gearlever || true
 show_progress 9 $TOTAL_STEPS "$MSG_PHASE_3"
 
 sudo systemctl unmask packagekit.service dnf-makecache.timer dnf-makecache.service dnf5-makecache.timer dnf5-makecache.service 2>/dev/null || true
-
-if [[ -d "$SCRIPT_DIR/bleachbit" ]]; then
-    sudo mkdir -p /root/.config/bleachbit
-    sudo cp -af "$SCRIPT_DIR/bleachbit/." /root/.config/bleachbit/
-fi
-
 sudo systemctl enable fstrim.timer || true
 sudo journalctl --vacuum-time=2d || true
 
