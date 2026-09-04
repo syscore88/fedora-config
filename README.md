@@ -51,7 +51,7 @@ Sets up Zsh + Oh My Zsh + Powerlevel10k (if `zsh` is present), removes the tempo
 
 1. Clone your repository
 ```bash
-git clone https://gitlab.com/syscore88/fedora-config.git
+git clone https://github.com/syscore88/fedora-config.git
 ```
 
 2. Enter the downloaded folder
