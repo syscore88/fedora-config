@@ -71,12 +71,11 @@ chmod +x install.sh
 ```bash
 ./install.sh
 ```
+---
 
 ### ☕ Support the Project
 
 If you find this tool helpful and it saved you some time, consider buying me a coffee to support further development! 
-
----
 
 [![Buy Me A Coffee](https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png)](https://buymeacoffee.com/bartekszczecinski)
 
