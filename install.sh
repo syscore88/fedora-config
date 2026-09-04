@@ -239,10 +239,10 @@ sudo dnf5 install -y @development-tools @c-development gcc gcc-c++ make || true
 TO_REMOVE=(
     nano konqueror plasma-browser-integration plasma-vault krdp krfb
     plasma-thunderbolt kontact kmail kontrast plasma-welcome showtime
-    evolution evolution-common evolution-plugins evolution-ews
+    evolution evolution-common evolution-plugins evolution-ews rhythmbox 
     kaddressbook kdepim-runtime akonadi-server akregator korganizer
-    epiphany decibels gnome-calendar gnome-clocks gnome-user-docs
-    gnome-contacts gnome-maps gnome-weather yelp kwalletmanager
+    epiphany decibels gnome-calendar gnome-clocks gnome-user-docs showtime
+    gnome-contacts gnome-maps gnome-weather yelp kwalletmanagergnome-music
 )
 wait_for_rpm_lock
 for pkg in "${TO_REMOVE[@]}"; do
