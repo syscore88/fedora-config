@@ -238,8 +238,8 @@ sudo dnf5 install -y @development-tools @c-development gcc gcc-c++ make || true
 
 TO_REMOVE=(
     nano konqueror plasma-browser-integration plasma-vault krdp krfb
-    plasma-thunderbolt kontact kmail kontrast plasma-welcome showtime
-    evolution evolution-common evolution-plugins evolution-ews rhythmbox 
+    plasma-thunderbolt kontact kmail kontrast plasma-welcome showtime elisa
+    evolution evolution-common evolution-plugins evolution-ews rhythmbox dragon
     kaddressbook kdepim-runtime akonadi-server akregator korganizer parole
     epiphany decibels gnome-calendar gnome-clocks gnome-user-docs showtime
     gnome-contacts gnome-maps gnome-weather yelp kwalletmanager gnome-music
@@ -284,13 +284,13 @@ fi
 show_progress 4 $TOTAL_STEPS "$MSG_PHASE_2"
 
 PACKAGES=(
-    google-chrome-stable brave-origin elisa dragon
+    google-chrome-stable brave-origin 
     dconf-editor hunspell-pl fastfetch unrar git mc exfatprogs ntfs-3g vim
     os-prober android-tools fsarchiver inxi pv rsync python3-defusedxml
     python3-packaging python3-pip pipx 7zip zenity innoextract makeself
-    bleachbit timeshift cdemu-daemon cdemu-client
+    bleachbit timeshift cdemu-daemon cdemu-client vlc vlc-plugin-access-extra
     audacity gimp gmic mixxx kdenlive soundconverter handbrake-gui
-    telegram-desktop qbittorrent thunderbird
+    telegram-desktop qbittorrent thunderbird qmmp qmmp-plugin-pack
     wine winetricks
     gamemode vulkan-tools gamescope mangohud goverlay
     cmake meson ninja-build python3-tqdm just
