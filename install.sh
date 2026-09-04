@@ -240,9 +240,9 @@ TO_REMOVE=(
     nano konqueror plasma-browser-integration plasma-vault krdp krfb
     plasma-thunderbolt kontact kmail kontrast plasma-welcome showtime
     evolution evolution-common evolution-plugins evolution-ews rhythmbox 
-    kaddressbook kdepim-runtime akonadi-server akregator korganizer
+    kaddressbook kdepim-runtime akonadi-server akregator korganizer parole
     epiphany decibels gnome-calendar gnome-clocks gnome-user-docs showtime
-    gnome-contacts gnome-maps gnome-weather yelp kwalletmanagergnome-music
+    gnome-contacts gnome-maps gnome-weather yelp kwalletmanager gnome-music
 )
 wait_for_rpm_lock
 for pkg in "${TO_REMOVE[@]}"; do
