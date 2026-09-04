@@ -288,7 +288,7 @@ PACKAGES=(
     dconf-editor hunspell-pl fastfetch unrar git mc exfatprogs ntfs-3g vim
     os-prober android-tools fsarchiver inxi pv rsync python3-defusedxml
     python3-packaging python3-pip pipx 7zip zenity innoextract makeself
-    bleachbit timeshift cdemu-daemon cdemu-client vlc vlc-plugin-access-extra
+    bleachbit timeshift cdemu-daemon cdemu-client vlc vlc-plugin-extras
     audacity gimp gmic mixxx kdenlive soundconverter handbrake-gui
     telegram-desktop qbittorrent thunderbird qmmp qmmp-plugin-pack
     wine winetricks
