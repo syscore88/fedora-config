@@ -79,6 +79,10 @@ If you find this tool helpful and it saved you some time, consider buying me a c
 
 ---
 
+If you find this project useful, leave a star! ⭐
+
+---
+
 ## ⚠️ Requirements & Notes
 
 - A base **Fedora** installation with `dnf5` and an internet connection (packages come from the official repos, RPM Fusion, Google/Brave repos, a Copr repo, Flathub, and GitHub releases).
