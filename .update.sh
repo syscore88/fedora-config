@@ -136,15 +136,20 @@ show_progress $STEP $TOTAL_STEPS "$MSG_PHASE_UPDATE"
 # ---------------------------------------------------------------
 # PHASE: UPDATE
 # ---------------------------------------------------------------
+DNF_PENDING=$(sudo env LC_ALL=C dnf check-update -q 2>/dev/null | awk 'NF==3 && $1 ~ /\./')
+
 DNF_OUTPUT=$(sudo env LC_ALL=C dnf upgrade --refresh -y 2>&1)
 echo "$DNF_OUTPUT"
 
-PKG_LIST=$(echo "$DNF_OUTPUT" | awk '
-    /^Upgrading:$/ {flag=1; next}
-    flag && NF==0 {flag=0}
-    flag && /^[^ ]/ {flag=0}
-    flag && NF>0 && $1 != "replacing" {print $1}
-' | sed -E 's/\.(x86_64|i686|i386|aarch64|armv7hl|ppc64le|s390x|noarch)$//' | grep -vix 'package' | sort -u)
+PKG_LIST=""
+while read -r name_arch new_ver _repo; do
+    [ -z "$name_arch" ] && continue
+    pkgname="${name_arch%.*}"
+    old_ver=$(rpm -q --qf '%{VERSION}-%{RELEASE}' "$pkgname" 2>/dev/null)
+    [ -z "$old_ver" ] && old_ver="?"
+    PKG_LIST+="${pkgname}: ${old_ver} → ${new_ver}"$'\n'
+done <<< "$DNF_PENDING"
+PKG_LIST=$(echo "$PKG_LIST" | sed '/^$/d' | sort -u)
 if [ -n "$PKG_LIST" ]; then
     print_pkg_list "$MSG_PKGS_UPDATED" "$PKG_LIST"
 else
@@ -155,10 +160,17 @@ fi
 STEP=$((STEP+1)); show_progress $STEP $TOTAL_STEPS "$MSG_PHASE_UPDATE"
 
 if command -v flatpak &> /dev/null; then
+    FLATPAK_BEFORE=$(flatpak list --app --columns=application,version 2>/dev/null)
+
     FLATPAK_OUTPUT=$(flatpak update -y 2>&1)
     echo "$FLATPAK_OUTPUT"
 
-    FLATPAK_PKGS=$(echo "$FLATPAK_OUTPUT" | grep -E '\[Update\]' | awk '{print $3}')
+    FLATPAK_AFTER=$(flatpak list --app --columns=application,version 2>/dev/null)
+
+    FLATPAK_PKGS=$(join -t$'\t' -j1 \
+        <(echo "$FLATPAK_BEFORE" | sort -t$'\t' -k1,1) \
+        <(echo "$FLATPAK_AFTER" | sort -t$'\t' -k1,1) 2>/dev/null \
+        | awk -F'\t' '$2 != $3 { printf "%s: %s → %s\n", $1, ($2==""?"?":$2), ($3==""?"?":$3) }')
     print_pkg_list "$MSG_FLATPAK_UPDATED" "$FLATPAK_PKGS"
 fi
 STEP=$((STEP+1)); show_progress $STEP $TOTAL_STEPS "$MSG_PHASE_UPDATE"
