@@ -15,7 +15,7 @@ detect_lang() {
     case "$l" in
         pl_PL*|pl*) echo "pl" ;;
         *) echo "en" ;;
-    esac 
+    esac
 }
 SCRIPT_LANG=$(detect_lang)
 
@@ -23,6 +23,9 @@ if [ "$SCRIPT_LANG" = "pl" ]; then
     MSG_TITLE="       KOMPLEKSOWY SKRYPT AKTUALIZACJI I CZYSZCZENIA  "
     MSG_ASK_PASS="Proszę podać hasło administratora (sudo):"
     MSG_PHASE_UPDATE="[1/4] Aktualizacja systemu i aplikacji..."
+    MSG_PKGS_UPDATED="Aktualizowane pakiety:"
+    MSG_PKGS_NONE="Brak pakietów do aktualizacji (system aktualny)."
+    MSG_FLATPAK_UPDATED="Aktualizowane pakiety Flatpak:"
     MSG_PHASE_CLEAN_SYS="[2/4] Czyszczenie systemowe (sudo)..."
     MSG_PHASE_CLEAN_USER="[3/4] Czyszczenie użytkownika..."
     MSG_PHASE_RESTART="[4/4] Sprawdzanie konieczności restartu..."
@@ -34,6 +37,9 @@ else
     MSG_TITLE="         COMPREHENSIVE UPDATE AND CLEANUP SCRIPT       "
     MSG_ASK_PASS="Please enter the administrator (sudo) password:"
     MSG_PHASE_UPDATE="[1/4] Updating system and applications..."
+    MSG_PKGS_UPDATED="Updating packages:"
+    MSG_PKGS_NONE="No packages to update (system is up to date)."
+    MSG_FLATPAK_UPDATED="Updating Flatpak packages:"
     MSG_PHASE_CLEAN_SYS="[2/4] System cleanup (sudo)..."
     MSG_PHASE_CLEAN_USER="[3/4] User cleanup..."
     MSG_PHASE_RESTART="[4/4] Checking if a restart is needed..."
@@ -101,6 +107,17 @@ show_progress() {
     printf "\r\033[K[\033[1;32m%s\033[0;90m%s\033[0m] %3d%% | \033[1;36m%s\033[0m" "$bar_filled" "$bar_empty" "$percent" "$msg" >&3
 }
 
+print_pkg_list() {
+    local title="$1"
+    local list="$2"
+    [ -z "$list" ] && return
+    printf "\r\033[K" >&3
+    echo -e "${BLUE}${title}${NC}" >&3
+    while IFS= read -r pkg; do
+        [ -n "$pkg" ] && echo -e "  ${GREEN}•${NC} $pkg" >&3
+    done <<< "$list"
+}
+
 echo -e "${BLUE}======================================================${NC}" >&3
 echo -e "${BLUE}${MSG_TITLE}${NC}" >&3
 echo -e "${BLUE}======================================================${NC}" >&3
@@ -112,19 +129,37 @@ SUDO_KEEP_ALIVE_PID=$!
 
 REBOOT_NEEDED=false
 FWUPD_RESTART_NEEDED=false
-TOTAL_STEPS=21
+TOTAL_STEPS=18
 STEP=0
 show_progress $STEP $TOTAL_STEPS "$MSG_PHASE_UPDATE"
 
 # ---------------------------------------------------------------
 # PHASE: UPDATE
 # ---------------------------------------------------------------
-sudo apt-get update 2>&1 | grep -v "nie obsługuje architektury\|Pomijanie pozyskania skonfigurowanego pliku\|does not support architecture\|Skipping acquire of configured file"
-sudo apt-get dist-upgrade -y
+DNF_OUTPUT=$(sudo dnf upgrade --refresh -y 2>&1)
+echo "$DNF_OUTPUT"
+
+PKG_LIST=$(echo "$DNF_OUTPUT" | awk '
+    /^Upgrading:$/ {flag=1; next}
+    flag && NF==0 {flag=0}
+    flag && /^[^ ]/ {flag=0}
+    flag && NF>0 && $1 != "replacing" {print $1}
+')
+if [ -n "$PKG_LIST" ]; then
+    print_pkg_list "$MSG_PKGS_UPDATED" "$PKG_LIST"
+else
+    printf "\r\033[K" >&3
+    echo -e "${BLUE}${MSG_PKGS_NONE}${NC}" >&3
+fi
+
 STEP=$((STEP+1)); show_progress $STEP $TOTAL_STEPS "$MSG_PHASE_UPDATE"
 
 if command -v flatpak &> /dev/null; then
-    flatpak update -y
+    FLATPAK_OUTPUT=$(flatpak update -y 2>&1)
+    echo "$FLATPAK_OUTPUT"
+
+    FLATPAK_PKGS=$(echo "$FLATPAK_OUTPUT" | grep -E '\[Update\]' | awk '{print $3}')
+    print_pkg_list "$MSG_FLATPAK_UPDATED" "$FLATPAK_PKGS"
 fi
 STEP=$((STEP+1)); show_progress $STEP $TOTAL_STEPS "$MSG_PHASE_UPDATE"
 
@@ -151,21 +186,10 @@ STEP=$((STEP+1)); show_progress $STEP $TOTAL_STEPS "$MSG_PHASE_CLEAN_SYS"
 # ---------------------------------------------------------------
 # PHASE: SYSTEM CLEANUP (SUDO)
 # ---------------------------------------------------------------
-sudo apt-get autoremove --purge -y
+sudo dnf autoremove -y
 STEP=$((STEP+1)); show_progress $STEP $TOTAL_STEPS "$MSG_PHASE_CLEAN_SYS"
 
-if command -v deborphan &> /dev/null; then
-    sudo apt-get purge $(deborphan) -y 2>/dev/null
-fi
-STEP=$((STEP+1)); show_progress $STEP $TOTAL_STEPS "$MSG_PHASE_CLEAN_SYS"
-
-sudo apt-key net-update 2>/dev/null
-STEP=$((STEP+1)); show_progress $STEP $TOTAL_STEPS "$MSG_PHASE_CLEAN_SYS"
-
-sudo apt-get autoclean
-STEP=$((STEP+1)); show_progress $STEP $TOTAL_STEPS "$MSG_PHASE_CLEAN_SYS"
-
-sudo find /etc/apt/sources.list.d/ -type f -name "*.save" -delete
+sudo dnf clean packages
 STEP=$((STEP+1)); show_progress $STEP $TOTAL_STEPS "$MSG_PHASE_CLEAN_SYS"
 
 if command -v flatpak &> /dev/null; then
@@ -208,11 +232,9 @@ sudo find /tmp -type f -atime +3 -delete 2>/dev/null
 sudo find /var/tmp -type f -atime +3 -delete 2>/dev/null
 STEP=$((STEP+1)); show_progress $STEP $TOTAL_STEPS "$MSG_PHASE_CLEAN_SYS"
 
-CURRENT_KERNEL=$(uname -r)
-KERNEL_PACKAGES=$(dpkg -l | grep -E 'linux-image-[0-9]' | awk '{print $2}' | grep -v "$CURRENT_KERNEL")
-if [ -n "$KERNEL_PACKAGES" ]; then
-    sudo apt-get purge $KERNEL_PACKAGES -y
-    REBOOT_NEEDED=true
+OLD_KERNELS=$(dnf repoquery --installonly --latest-limit=-2 -q 2>/dev/null)
+if [ -n "$OLD_KERNELS" ]; then
+    sudo dnf remove -y $OLD_KERNELS
 fi
 STEP=$((STEP+1)); show_progress $STEP $TOTAL_STEPS "$MSG_PHASE_CLEAN_USER"
 
@@ -264,8 +286,14 @@ STEP=$((STEP+1)); show_progress $STEP $TOTAL_STEPS "$MSG_PHASE_RESTART"
 # ---------------------------------------------------------------
 # PHASE: RESTART CHECK
 # ---------------------------------------------------------------
-if [ -f /var/run/reboot-required ]; then
-    REBOOT_NEEDED=true
+if command -v dnf5 &> /dev/null; then
+    if ! dnf5 needs-restarting &>/dev/null; then
+        REBOOT_NEEDED=true
+    fi
+elif command -v needs-restarting &> /dev/null; then
+    if ! needs-restarting -r &>/dev/null; then
+        REBOOT_NEEDED=true
+    fi
 fi
 STEP=$((STEP+1)); show_progress $STEP $TOTAL_STEPS "$MSG_PHASE_RESTART"
 
