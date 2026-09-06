@@ -136,7 +136,7 @@ show_progress $STEP $TOTAL_STEPS "$MSG_PHASE_UPDATE"
 # ---------------------------------------------------------------
 # PHASE: UPDATE
 # ---------------------------------------------------------------
-DNF_OUTPUT=$(sudo dnf upgrade --refresh -y 2>&1)
+DNF_OUTPUT=$(sudo env LC_ALL=C dnf upgrade --refresh -y 2>&1)
 echo "$DNF_OUTPUT"
 
 PKG_LIST=$(echo "$DNF_OUTPUT" | awk '
@@ -144,7 +144,7 @@ PKG_LIST=$(echo "$DNF_OUTPUT" | awk '
     flag && NF==0 {flag=0}
     flag && /^[^ ]/ {flag=0}
     flag && NF>0 && $1 != "replacing" {print $1}
-')
+' | sed -E 's/\.(x86_64|i686|i386|aarch64|armv7hl|ppc64le|s390x|noarch)$//' | grep -vix 'package' | sort -u)
 if [ -n "$PKG_LIST" ]; then
     print_pkg_list "$MSG_PKGS_UPDATED" "$PKG_LIST"
 else
@@ -186,10 +186,10 @@ STEP=$((STEP+1)); show_progress $STEP $TOTAL_STEPS "$MSG_PHASE_CLEAN_SYS"
 # ---------------------------------------------------------------
 # PHASE: SYSTEM CLEANUP (SUDO)
 # ---------------------------------------------------------------
-sudo dnf autoremove -y
+sudo env LC_ALL=C dnf autoremove -y
 STEP=$((STEP+1)); show_progress $STEP $TOTAL_STEPS "$MSG_PHASE_CLEAN_SYS"
 
-sudo dnf clean packages
+sudo env LC_ALL=C dnf clean packages
 STEP=$((STEP+1)); show_progress $STEP $TOTAL_STEPS "$MSG_PHASE_CLEAN_SYS"
 
 if command -v flatpak &> /dev/null; then
@@ -234,7 +234,7 @@ STEP=$((STEP+1)); show_progress $STEP $TOTAL_STEPS "$MSG_PHASE_CLEAN_SYS"
 
 OLD_KERNELS=$(dnf repoquery --installonly --latest-limit=-2 -q 2>/dev/null)
 if [ -n "$OLD_KERNELS" ]; then
-    sudo dnf remove -y $OLD_KERNELS
+    sudo env LC_ALL=C dnf remove -y $OLD_KERNELS
 fi
 STEP=$((STEP+1)); show_progress $STEP $TOTAL_STEPS "$MSG_PHASE_CLEAN_USER"
 
