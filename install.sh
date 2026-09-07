@@ -398,6 +398,9 @@ LSFG_URL=$(curl -sf https://api.github.com/repos/YuriSizov/ls-fg/releases/latest
 LSFG_VK_URL=$(curl -sf https://api.github.com/repos/YuriSizov/ls-fg-vk/releases/latest | grep "browser_download_url.*rpm" | cut -d '"' -f 4 || true)
 [[ -n "$LSFG_VK_URL" ]] && download_rpm "ls-fg-vk" "$LSFG_VK_URL" "$RPM_DIR/lsfg-vk.rpm"
 
+OPENCODE_URL=$(curl -sf https://api.github.com/repos/opencode-ai/opencode/releases/latest | grep "browser_download_url.*opencode.*rpm" | cut -d '"' -f 4 || true)
+[[ -n "$OPENCODE_URL" ]] && download_rpm "opencode-desktop" "$OPENCODE_URL" "$RPM_DIR/opencode-desktop.rpm"
+
 wait_for_rpm_lock
 sudo dnf5 -y copr enable faugus/faugus-launcher && sudo dnf5 --refresh -y install faugus-launcher || true
 
