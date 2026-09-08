@@ -398,7 +398,7 @@ LSFG_URL=$(curl -sf https://api.github.com/repos/YuriSizov/ls-fg/releases/latest
 LSFG_VK_URL=$(curl -sf https://api.github.com/repos/YuriSizov/ls-fg-vk/releases/latest | grep "browser_download_url.*rpm" | cut -d '"' -f 4 || true)
 [[ -n "$LSFG_VK_URL" ]] && download_rpm "ls-fg-vk" "$LSFG_VK_URL" "$RPM_DIR/lsfg-vk.rpm"
 
-OPENCODE_URL=$(curl -sf https://api.github.com/repos/opencode-ai/opencode/releases/latest | grep "browser_download_url.*opencode.*rpm" | cut -d '"' -f 4 || true)
+OPENCODE_URL=$(curl -sf https://api.github.com/repos/sst/opencode/releases/latest | grep "browser_download_url.*opencode-desktop-linux-x86_64\.rpm" | cut -d '"' -f 4 || true)
 [[ -n "$OPENCODE_URL" ]] && download_rpm "opencode-desktop" "$OPENCODE_URL" "$RPM_DIR/opencode-desktop.rpm"
 
 wait_for_rpm_lock
@@ -418,7 +418,8 @@ show_progress 7 $TOTAL_STEPS "$MSG_PHASE_2"
 wait_for_rpm_lock
 sudo dnf5 install -y --skip-unavailable virt-manager qemu-kvm qemu-img libvirt libvirt-daemon-kvm edk2-ovmf dnsmasq || true
 
-dconf load /org/virt-manager/virt-manager/ <<'DCONFEOF'
+if command -v dconf &>/dev/null; then
+    dconf load /org/virt-manager/virt-manager/ <<'DCONFEOF'
 [/]
 manager-window-height=297
 manager-window-width=478
@@ -457,6 +458,9 @@ network-traffic=false
 autoconnect=1
 vm-window-size=(1280, 842)
 DCONFEOF
+else
+    log_warn "Brak polecenia dconf – pomijam wczytanie ustawień virt-managera." "dconf command not found – skipping virt-manager settings import."
+fi
 
 for svc in libvirtd virtqemud; do
     if systemctl list-unit-files "$svc.service" &>/dev/null 2>&1 && systemctl list-unit-files "$svc.service" | grep -q "$svc"; then
