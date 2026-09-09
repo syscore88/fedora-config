@@ -2,7 +2,7 @@ version = 2
 
 [global]
 allow_fp16 = true
-dll = "/home/bartek/.local/share/Steam/Lossless Scaling"
+dll = "/home/bartek/.local/share/Steam/Lossless Scaling/lsfg-vk.dll"
 log_level = "info"
 
 [[profile]]
