@@ -397,7 +397,7 @@ OPENCODE_URL=$(curl -sfL https://api.github.com/repos/anomalyco/opencode/release
 [[ -n "$OPENCODE_URL" ]] && download_rpm "opencode-desktop" "$OPENCODE_URL" "$RPM_DIR/opencode-desktop.rpm"
 
 wait_for_rpm_lock
-sudo dnf5 -y copr enable faugus/faugus-launcher && sudo dnf5 --refresh -y install faugus-launcher || true
+sudo dnf5 -y copr enable atim/heroic-games-launcher && sudo dnf5 --refresh -y install heroic-games-launcher-bin || true
 
 shopt -s nullglob
 RPM_FILES=("$RPM_DIR"/*.rpm)
