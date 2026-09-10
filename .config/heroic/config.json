@@ -24,14 +24,19 @@
     "minimizeOnLaunch": false,
     "nvidiaPrime": false,
     "enviromentOptions": [],
-    "wrapperOptions": [],
+    "wrapperOptions": [
+      {
+        "exe": "\"/home/bartek/.local/share/goverlay/gameconfig/global/bgmod\" %command%",
+        "args": ""
+      }
+    ],
     "showFps": true,
     "useGameMode": true,
     "wineCrossoverBottle": "Heroic",
     "winePrefix": "/home/bartek/Gry/prefix",
     "wineVersion": {
-      "bin": "/home/bartek/.config/heroic/tools/proton/GE-Proton-latest/proton",
-      "name": "GE-Proton-latest",
+      "bin": "/home/bartek/.config/heroic/tools/proton/Proton-CachyOS-latest/proton",
+      "name": "Proton-CachyOS-latest",
       "type": "proton"
     },
     "enableEsync": true,
@@ -76,7 +81,8 @@
       "fpsLimiter": "",
       "fpsLimiterNoFocus": "",
       "additionalOptions": ""
-    }
+    },
+    "useSteamRuntime": true
   },
   "version": "v0"
 }
