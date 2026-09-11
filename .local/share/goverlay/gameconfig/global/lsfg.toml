@@ -1,24 +1,24 @@
 version = 1
 
 [global]
-dll = "/home/bartek/.local/share/Steam/Lossless Scaling/Lossless.dll"
+dll = "/home/bartek/.local/share/Steam/Lossless Scaling/LosslessScaling.dll"
 
 [[game]]
 exe = "pascube"
-dll = "/home/bartek/.local/share/Steam/Lossless Scaling/Lossless.dll"
+dll = "/home/bartek/.local/share/Steam/Lossless Scaling/LosslessScaling.dll"
 multiplier = 2
 flow_scale = 1.00
 performance_mode = true
 hdr_mode = false
 legacy = true
-experimental_present_mode = "fifo"
+experimental_present_mode = "none"
 
 [[game]]
 exe = "vkcube"
-dll = "/home/bartek/.local/share/Steam/Lossless Scaling/Lossless.dll"
+dll = "/home/bartek/.local/share/Steam/Lossless Scaling/LosslessScaling.dll"
 multiplier = 2
 flow_scale = 1.00
 performance_mode = true
 hdr_mode = false
 legacy = true
-experimental_present_mode = "fifo"
+experimental_present_mode = "none"

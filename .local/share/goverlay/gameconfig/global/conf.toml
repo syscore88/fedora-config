@@ -1,0 +1,25 @@
+version = 2
+
+[global]
+dll = "/home/bartek/.local/share/Steam/Lossless Scaling/LosslessScaling.dll"
+allow_fp16 = false
+
+[[profile]]
+name = "pascube"
+active_in = ["pascube"]
+multiplier = 2
+flow_scale = 1.00
+performance_mode = true
+pacing = "none"
+override_present_mode = true
+preserve_swapchain_image_count = false
+
+[[profile]]
+name = "vkcube"
+active_in = ["vkcube"]
+multiplier = 2
+flow_scale = 1.00
+performance_mode = true
+pacing = "none"
+override_present_mode = true
+preserve_swapchain_image_count = false
