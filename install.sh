@@ -292,12 +292,13 @@ PACKAGES=(
     audacity gimp gmic mixxx kdenlive soundconverter handbrake-gui
     telegram-desktop qbittorrent thunderbird qmmp qmmp-plugin-pack
     wine winetricks
-    gamemode vulkan-tools gamescope mangohud goverlay
+    gamemode vulkan-tools gamescope mangohud
     cmake meson ninja-build python3-tqdm just
     gstreamer1-plugins-good gstreamer1-plugins-bad-free gstreamer1-plugins-ugly
     bluez-tools zsh zsh-syntax-highlighting zsh-autosuggestions
     libayatana-appindicator
     pkgconf-pkg-config vulkan-headers vulkan-loader-devel
+    qt6-qtdeclarative qt6-qtbase
 )
 
 wait_for_rpm_lock
@@ -317,6 +318,18 @@ for f in /etc/xdg/autostart/gcdemu.desktop /etc/xdg/autostart/cdemu.desktop /usr
     fi
 done
 pkill -f gcdemu 2>/dev/null || true
+
+# ==========================================================
+#  lsfg-vk (Lossless Scaling Frame Generation)
+#  https://lsfg-vk.dev/docs/installation/
+# ==========================================================
+LSFG_TMP="$(mktemp -d)"
+LSFG_URL="$(curl -fsSL https://builds.lsfg-vk.dev/ | grep -oE 'https://[^"'"'"']+linux[^"'"'"']*\.tar\.xz' | head -n1 || true)"
+if [[ -n "$LSFG_URL" ]] && curl -fsSL -o "$LSFG_TMP/lsfg-vk.tar.xz" "$LSFG_URL"; then
+    mkdir -p "$HOME/.local"
+    tar -xf "$LSFG_TMP/lsfg-vk.tar.xz" -C "$HOME/.local" || true
+fi
+rm -rf "$LSFG_TMP"
 
 show_progress 5 $TOTAL_STEPS "$MSG_PHASE_2"
 
