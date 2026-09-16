@@ -33,6 +33,8 @@ if [ "$SCRIPT_LANG" = "pl" ]; then
     MSG_RESTART_WARN="UWAGA: Zalecany jest restart komputera"
     MSG_NO_RESTART="Restart systemu nie jest aktualnie wymagany."
     MSG_PRESS_ENTER="Naciśnij Enter, aby zamknąć okno..."
+    MSG_OFFLINE_STAGED="Pakiety pobrane. Zostaną zainstalowane offline przy następnym restarcie."
+    MSG_OFFLINE_RESTART_WARN="UWAGA: Zaplanowano instalację aktualizacji w trybie offline — wymagany restart"
 else
     MSG_TITLE="         COMPREHENSIVE UPDATE AND CLEANUP SCRIPT       "
     MSG_ASK_PASS="Please enter the administrator (sudo) password:"
@@ -47,6 +49,8 @@ else
     MSG_RESTART_WARN="WARNING: A system restart is recommended"
     MSG_NO_RESTART="A system restart is not currently required."
     MSG_PRESS_ENTER="Press Enter to close this window..."
+    MSG_OFFLINE_STAGED="Packages downloaded. They will be installed offline on the next restart."
+    MSG_OFFLINE_RESTART_WARN="WARNING: An offline update install has been staged — a restart is required"
 fi
 
 TMP_LOG="$(mktemp /tmp/update-log.XXXXXX)"
@@ -129,17 +133,21 @@ SUDO_KEEP_ALIVE_PID=$!
 
 REBOOT_NEEDED=false
 FWUPD_RESTART_NEEDED=false
-TOTAL_STEPS=17
+TOTAL_STEPS=18
 STEP=0
 show_progress $STEP $TOTAL_STEPS "$MSG_PHASE_UPDATE"
 
 # ---------------------------------------------------------------
 # PHASE: UPDATE
 # ---------------------------------------------------------------
-DNF_PENDING=$(sudo env LC_ALL=C dnf check-update -q 2>/dev/null | awk 'NF==3 && $1 ~ /\./')
+DNF_PENDING=$(sudo env LC_ALL=C dnf check-update --refresh -q 2>/dev/null | awk 'NF==3 && $1 ~ /\./')
 
-DNF_OUTPUT=$(sudo env LC_ALL=C dnf upgrade --refresh -y 2>&1)
-echo "$DNF_OUTPUT"
+OFFLINE_UPDATE_STAGED=false
+if ! command -v pkcon &> /dev/null; then
+    # Fallback: brak PackageKit — aktualizacja na żywo jak dotychczas (bez trybu offline)
+    DNF_OUTPUT=$(sudo env LC_ALL=C dnf upgrade --refresh -y 2>&1)
+    echo "$DNF_OUTPUT"
+fi
 
 PKG_LIST=""
 while read -r name_arch new_ver _repo; do
@@ -244,6 +252,22 @@ OLD_KERNELS=$(dnf repoquery --installonly --latest-limit=-2 -q 2>/dev/null)
 if [ -n "$OLD_KERNELS" ]; then
     sudo env LC_ALL=C dnf remove -y $OLD_KERNELS
 fi
+STEP=$((STEP+1)); show_progress $STEP $TOTAL_STEPS "$MSG_PHASE_CLEAN_SYS"
+
+# ---------------------------------------------------------------
+# PHASE: OFFLINE UPDATE STAGING (po czyszczeniu, przed czyszczeniem użytkownika)
+# ---------------------------------------------------------------
+if command -v pkcon &> /dev/null; then
+    # Pobiera pakiety, ale ich NIE instaluje na żywym systemie
+    PK_OUTPUT=$(pkcon update --only-download -p 2>&1)
+    echo "$PK_OUTPUT"
+    if [ -n "$DNF_PENDING" ]; then
+        # Zaplanuj instalację w trybie offline (przed startem pulpitu, przy następnym restarcie)
+        if pkcon offline-trigger 2>&1; then
+            OFFLINE_UPDATE_STAGED=true
+        fi
+    fi
+fi
 STEP=$((STEP+1)); show_progress $STEP $TOTAL_STEPS "$MSG_PHASE_CLEAN_USER"
 
 # ---------------------------------------------------------------
@@ -320,6 +344,10 @@ STEP=$((STEP+1)); show_progress $STEP $TOTAL_STEPS "$MSG_PHASE_RESTART"
 if [ "$FWUPD_RESTART_NEEDED" = true ]; then
     REBOOT_NEEDED=true
 fi
+
+if [ "$OFFLINE_UPDATE_STAGED" = true ]; then
+    REBOOT_NEEDED=true
+fi
 STEP=$((STEP+1)); show_progress $STEP $TOTAL_STEPS "$MSG_PHASE_RESTART"
 
 echo -e "\n" >&3
@@ -327,7 +355,10 @@ echo -e "${GREEN}======================================================${NC}" >&
 echo -e "${GREEN}${MSG_DONE}${NC}" >&3
 echo -e "${GREEN}======================================================${NC}" >&3
 
-if [ "$REBOOT_NEEDED" = true ]; then
+if [ "$OFFLINE_UPDATE_STAGED" = true ]; then
+    echo -e "${YELLOW}${MSG_OFFLINE_STAGED}${NC}" >&3
+    echo -e "${YELLOW}${MSG_OFFLINE_RESTART_WARN}${NC}" >&3
+elif [ "$REBOOT_NEEDED" = true ]; then
     echo -e "${YELLOW}${MSG_RESTART_WARN}${NC}" >&3
 else
     echo -e "${GREEN}${MSG_NO_RESTART}${NC}" >&3
