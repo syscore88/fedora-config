@@ -144,7 +144,6 @@ DNF_PENDING=$(sudo env LC_ALL=C dnf check-update --refresh -q 2>/dev/null | awk 
 
 OFFLINE_UPDATE_STAGED=false
 if ! command -v pkcon &> /dev/null; then
-    # Fallback: brak PackageKit — aktualizacja na żywo jak dotychczas (bez trybu offline)
     DNF_OUTPUT=$(sudo env LC_ALL=C dnf upgrade --refresh -y 2>&1)
     echo "$DNF_OUTPUT"
 fi
@@ -254,15 +253,13 @@ if [ -n "$OLD_KERNELS" ]; then
 fi
 STEP=$((STEP+1)); show_progress $STEP $TOTAL_STEPS "$MSG_PHASE_CLEAN_SYS"
 
-# ---------------------------------------------------------------
-# PHASE: OFFLINE UPDATE STAGING (po czyszczeniu, przed czyszczeniem użytkownika)
-# ---------------------------------------------------------------
+# --------------------------------
+# PHASE: OFFLINE UPDATE STAGING 
+# --------------------------------
 if command -v pkcon &> /dev/null; then
-    # Pobiera pakiety, ale ich NIE instaluje na żywym systemie
     PK_OUTPUT=$(pkcon update --only-download -p 2>&1)
     echo "$PK_OUTPUT"
     if [ -n "$DNF_PENDING" ]; then
-        # Zaplanuj instalację w trybie offline (przed startem pulpitu, przy następnym restarcie)
         if pkcon offline-trigger 2>&1; then
             OFFLINE_UPDATE_STAGED=true
         fi
