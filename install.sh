@@ -319,10 +319,6 @@ for f in /etc/xdg/autostart/gcdemu.desktop /etc/xdg/autostart/cdemu.desktop /usr
 done
 pkill -f gcdemu 2>/dev/null || true
 
-# ==========================================================
-#  lsfg-vk (Lossless Scaling Frame Generation)
-#  https://lsfg-vk.dev/docs/installation/
-# ==========================================================
 LSFG_TMP="$(mktemp -d)"
 LSFG_URL="$(curl -fsSL https://builds.lsfg-vk.dev/ | grep -oE 'https://[^"'"'"']+linux[^"'"'"']*\.tar\.xz' | head -n1 || true)"
 if [[ -n "$LSFG_URL" ]] && curl -fsSL -o "$LSFG_TMP/lsfg-vk.tar.xz" "$LSFG_URL"; then
