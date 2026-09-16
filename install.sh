@@ -470,8 +470,6 @@ network-traffic=false
 autoconnect=1
 vm-window-size=(1280, 842)
 DCONFEOF
-else
-    log_warn "Brak polecenia dconf – pomijam wczytanie ustawień virt-managera." "dconf command not found – skipping virt-manager settings import."
 fi
 
 for svc in libvirtd virtqemud; do
