@@ -3,7 +3,7 @@
 # KOMPLEKSOWY SKRYPT KONFIGURACYJNY SYSTEMU (FEDORA)
 # ==========================================================
 
-set -euo pipefail
+set -Eeuo pipefail
 export PATH="/usr/sbin:/sbin:$PATH"
 
 detect_system_lang() {
@@ -32,13 +32,15 @@ exec >>"$TMP_LOG" 2>&1
 cleanup_on_exit() {
     local exit_code=$?
     printf '\033[?7h' >&3
-    if [ "$exit_code" -ne 0 ]; then
+    if [ "$exit_code" -ne 0 ] || [ "${#FAILED_PACKAGES[@]}" -gt 0 ]; then
         echo -e "\n" >&3
         cp -f "$TMP_LOG" "$LOG_FILE" 2>/dev/null || true
-        if [[ "$SCRIPT_LANG" == "pl" ]]; then
-            echo -e "${ERR}✖ Wystąpił błąd (kod: $exit_code). Szczegółowy log zapisano w: $LOG_FILE${NC}" >&3
-        else
-            echo -e "${ERR}✖ An error occurred (code: $exit_code). Detailed log saved to: $LOG_FILE${NC}" >&3
+        if [ "$exit_code" -ne 0 ]; then
+            if [[ "$SCRIPT_LANG" == "pl" ]]; then
+                echo -e "${ERR}✖ Wystąpił błąd (kod: $exit_code). Szczegółowy log zapisano w: $LOG_FILE${NC}" >&3
+            else
+                echo -e "${ERR}✖ An error occurred (code: $exit_code). Detailed log saved to: $LOG_FILE${NC}" >&3
+            fi
         fi
     fi
     rm -f "$TMP_LOG"
@@ -46,10 +48,11 @@ cleanup_on_exit() {
 trap cleanup_on_exit EXIT
 
 _pick_msg() { [[ "$SCRIPT_LANG" == "pl" ]] && echo "$1" || echo "$2"; }
-log_info()  { local m; m="$(_pick_msg "$1" "$2")"; echo -e "${INFO}==> $m${NC}"; }
-log_ok()    { local m; m="$(_pick_msg "$1" "$2")"; echo -e "${SUCCESS}✔ $m${NC}"; }
-log_err()   { local m; m="$(_pick_msg "$1" "$2")"; echo -e "${ERR}✘ ERROR: $m${NC}"; }
-log_warn()  { local m; m="$(_pick_msg "$1" "$2")"; echo -e "${WARN}⚠ WARN: $m${NC}"; }
+_log_write() { printf "\r\033[K" >&3; echo -e "$1" >&3; echo -e "$1"; }
+log_info()  { local m; m="$(_pick_msg "$1" "$2")"; _log_write "${INFO}==> $m${NC}"; }
+log_ok()    { local m; m="$(_pick_msg "$1" "$2")"; _log_write "${SUCCESS}✔ $m${NC}"; }
+log_err()   { local m; m="$(_pick_msg "$1" "$2")"; _log_write "${ERR}✘ ERROR: $m${NC}"; }
+log_warn()  { local m; m="$(_pick_msg "$1" "$2")"; _log_write "${WARN}⚠ WARN: $m${NC}"; }
 
 trap 'log_err "Błąd w linii $LINENO. Polecenie: $BASH_COMMAND" "Error at line $LINENO. Command: $BASH_COMMAND"' ERR
 
@@ -99,6 +102,7 @@ else
 fi
 
 TOTAL_STEPS=12
+FAILED_PACKAGES=()
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &> /dev/null && pwd)"
 CURRENT_USER=$(whoami)
 RPM_DIR="/tmp/rpms_$$"
@@ -116,10 +120,22 @@ if ! command -v visudo >/dev/null 2>&1 || sudo --version 2>/dev/null | grep -qi 
     USE_RUN0=1
 fi
 
+if [[ "$SCRIPT_LANG" == "pl" ]]; then
+    printf 'Wymagane hasło sudo:\n' >&3
+else
+    printf 'sudo password required:\n' >&3
+fi
 sudo -v
 
 if [[ "$USE_RUN0" -eq 1 ]]; then
-    printf 'polkit._run0_nopasswd.push("%s");\n' "$CURRENT_USER" | sudo tee "$RUN0_NOPASSWD_FILE" > /dev/null
+    sudo tee "$RUN0_NOPASSWD_FILE" > /dev/null << EOF
+polkit.addRule(function(action, subject) {
+    if (action.id == "org.freedesktop.systemd1.manage-units" &&
+        subject.user == "$CURRENT_USER") {
+        return polkit.Result.YES;
+    }
+});
+EOF
     sudo systemctl try-restart polkit 2>/dev/null || true
 else
     SUDOERS_TMP="$(mktemp)"
@@ -303,6 +319,9 @@ PACKAGES=(
 
 wait_for_rpm_lock
 sudo dnf5 install -y --skip-unavailable "${PACKAGES[@]}" || true
+for pkg in "${PACKAGES[@]}"; do
+    rpm -q "$pkg" &>/dev/null || FAILED_PACKAGES+=("$pkg")
+done
 
 sudo systemctl disable --now cdemu-daemon 2>/dev/null || true
 sudo systemctl mask cdemu-daemon 2>/dev/null || true
@@ -379,6 +398,9 @@ fi
 
 wait_for_rpm_lock
 sudo dnf5 install -y --skip-unavailable "${PACKAGES_32[@]}" || true
+for pkg in "${PACKAGES_32[@]}"; do
+    rpm -q "$pkg" &>/dev/null || FAILED_PACKAGES+=("$pkg")
+done
 
 if [[ -f "$DRACUT_CONF" ]]; then
     sudo dracut --force || true
@@ -574,6 +596,10 @@ fi
 
 show_progress 12 $TOTAL_STEPS "$MSG_PHASE_3"
 echo -e "\n" >&3
+
+if [ "${#FAILED_PACKAGES[@]}" -gt 0 ]; then
+    log_warn "Nie udało się zainstalować: ${FAILED_PACKAGES[*]}" "Failed to install: ${FAILED_PACKAGES[*]}"
+fi
 
 if [[ "$SCRIPT_LANG" == "pl" ]]; then
     echo -e "${SUCCESS}✔ KONFIGURACJA ZAKOŃCZONA SUKCESEM!${NC}" >&3
