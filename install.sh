@@ -190,8 +190,8 @@ fi
 
 show_progress 1 $TOTAL_STEPS "$MSG_PHASE_1"
 
-sudo systemctl stop packagekit.service dnf-makecache.timer dnf-makecache.service dnf5-makecache.timer dnf5-makecache.service 2>/dev/null || true
-sudo systemctl mask packagekit.service dnf-makecache.timer dnf-makecache.service dnf5-makecache.timer dnf5-makecache.service 2>/dev/null || true
+sudo systemctl stop packagekit.service packagekit-offline-update.service dnf-makecache.timer dnf-makecache.service dnf5-makecache.timer dnf5-makecache.service 2>/dev/null || true
+sudo systemctl mask packagekit.service packagekit-offline-update.service dnf-makecache.timer dnf-makecache.service dnf5-makecache.timer dnf5-makecache.service 2>/dev/null || true
 sudo killall -9 packagekitd dnf dnf5 rpm 2>/dev/null || true
 
 for DNF_CONF in /etc/dnf/dnf.conf /etc/dnf/dnf5.conf; do
@@ -557,7 +557,7 @@ sudo flatpak install -y flathub it.mijorus.gearlever || true
 # ==========================================================
 show_progress 9 $TOTAL_STEPS "$MSG_PHASE_3"
 
-sudo systemctl unmask packagekit.service dnf-makecache.timer dnf-makecache.service dnf5-makecache.timer dnf5-makecache.service 2>/dev/null || true
+sudo systemctl unmask packagekit.service packagekit-offline-update.service dnf-makecache.timer dnf-makecache.service dnf5-makecache.timer dnf5-makecache.service 2>/dev/null || true
 sudo systemctl enable fstrim.timer || true
 sudo journalctl --vacuum-time=2d || true
 
