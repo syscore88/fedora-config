@@ -212,6 +212,9 @@ sudo dnf5 install -y \
     "https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-${FEDORA_VER}.noarch.rpm" \
     "https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-${FEDORA_VER}.noarch.rpm" || true
 
+    wait_for_rpm_lock
+sudo dnf5 makecache --refresh || true
+
 OLD_GOOGLE_KEYS=$(rpm -qa 'gpg-pubkey*' --qf '%{NAME}-%{VERSION}-%{RELEASE} %{PACKAGER}\n' 2>/dev/null \
     | grep -i 'linux-packages-keymaster@google.com\|Google, Inc' \
     | cut -d' ' -f1 || true)
@@ -328,7 +331,7 @@ PACKAGES=(
 )
 
 wait_for_rpm_lock
-sudo dnf5 install -y --skip-unavailable "${PACKAGES[@]}" || true
+sudo dnf5 install -y --refresh --skip-unavailable "${PACKAGES[@]}" || true
 for pkg in "${PACKAGES[@]}"; do
     rpm -q "$pkg" &>/dev/null || FAILED_PACKAGES+=("$pkg")
 done
@@ -417,7 +420,7 @@ else
 fi
 
 wait_for_rpm_lock
-sudo dnf5 install -y --skip-unavailable "${PACKAGES_32[@]}" || true
+sudo dnf5 install -y --refresh --skip-unavailable "${PACKAGES_32[@]}" || true
 for pkg in "${PACKAGES_32[@]}"; do
     rpm -q "$pkg" &>/dev/null || FAILED_PACKAGES+=("$pkg")
 done
