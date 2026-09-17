@@ -250,6 +250,7 @@ if ! sudo rpm --import https://brave-browser-rpm-release.s3.brave.com/brave-core
     rm -rf "$BRAVE_GNUPGHOME"
 fi
 
+wait_for_rpm_lock
 sudo dnf5 config-manager addrepo --from-repofile=https://brave-browser-rpm-release.s3.brave.com/brave-browser.repo || true
 
 sudo mkdir -p /etc/NetworkManager/conf.d
