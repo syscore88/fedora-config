@@ -319,7 +319,7 @@ PACKAGES=(
     python3-packaging python3-pip pipx 7zip zenity innoextract makeself
     bleachbit timeshift vlc vlc-extras
     audacity gimp gmic mixxx kdenlive soundconverter HandBrake-gui
-    telegram-desktop qbittorrent thunderbird qmmp qmmp-plugin-pack
+    telegram-desktop qbittorrent qmmp qmmp-plugin-pack
     wine winetricks
     gamemode vulkan-tools gamescope mangohud
     cmake meson ninja-build python3-tqdm just
