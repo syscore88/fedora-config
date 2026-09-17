@@ -301,18 +301,18 @@ show_progress 4 $TOTAL_STEPS "$MSG_PHASE_2"
 
 PACKAGES=(
     google-chrome-stable brave-origin 
-    dconf-editor hunspell-pl fastfetch unrar git mc exfatprogs ntfs-3g vim
+    dconf-editor hunspell-pl fastfetch unrar git mc exfatprogs ntfs-3g vim-enhanced
     os-prober android-tools fsarchiver inxi pv rsync python3-defusedxml
     python3-packaging python3-pip pipx 7zip zenity innoextract makeself
-    bleachbit timeshift cdemu-daemon cdemu-client vlc vlc-plugin-extras
-    audacity gimp gmic mixxx kdenlive soundconverter handbrake-gui
+    bleachbit timeshift vlc vlc-extras
+    audacity gimp gmic mixxx kdenlive soundconverter HandBrake-gui
     telegram-desktop qbittorrent thunderbird qmmp qmmp-plugin-pack
     wine winetricks
     gamemode vulkan-tools gamescope mangohud
     cmake meson ninja-build python3-tqdm just
     gstreamer1-plugins-good gstreamer1-plugins-bad-free gstreamer1-plugins-ugly
     bluez-tools zsh zsh-syntax-highlighting zsh-autosuggestions
-    libayatana-appindicator
+    libayatana-appindicator-gtk3
     pkgconf-pkg-config vulkan-headers vulkan-loader-devel
     qt6-qtdeclarative qt6-qtbase
 )
@@ -320,6 +320,16 @@ PACKAGES=(
 wait_for_rpm_lock
 sudo dnf5 install -y --skip-unavailable "${PACKAGES[@]}" || true
 for pkg in "${PACKAGES[@]}"; do
+    rpm -q "$pkg" &>/dev/null || FAILED_PACKAGES+=("$pkg")
+done
+
+wait_for_rpm_lock
+sudo dnf5 install -y --skip-unavailable kernel-devel kernel-devel-matched || true
+wait_for_rpm_lock
+sudo dnf5 -y copr enable rok/cdemu || true
+wait_for_rpm_lock
+sudo dnf5 install -y --skip-unavailable cdemu-daemon cdemu-client gcdemu || true
+for pkg in cdemu-daemon cdemu-client; do
     rpm -q "$pkg" &>/dev/null || FAILED_PACKAGES+=("$pkg")
 done
 
@@ -350,7 +360,7 @@ show_progress 5 $TOTAL_STEPS "$MSG_PHASE_2"
 
 PACKAGES_32=(
     glibc.i686 libstdc++.i686 libgcc.i686 vulkan-loader.i686
-    wine.i686 alsa-lib.i686 pipewire-alsa.i686 pipewire-libs.i686
+    alsa-lib.i686 pipewire-alsa.i686 pipewire-libs.i686
     pulseaudio-libs.i686 openal-soft.i686 mangohud.i686 gamemode.i686
     openssl-libs.i686 nss.i686 nspr.i686 libXcomposite.i686 libXcursor.i686
     libXdamage.i686 libXext.i686 libXfixes.i686 libXi.i686 libXrandr.i686
@@ -428,7 +438,7 @@ OPENCODE_URL=$(curl -sfL https://api.github.com/repos/anomalyco/opencode/release
 [[ -n "$OPENCODE_URL" ]] && download_rpm "opencode-desktop" "$OPENCODE_URL" "$RPM_DIR/opencode-desktop.rpm"
 
 wait_for_rpm_lock
-sudo dnf5 -y copr enable atim/heroic-games-launcher && sudo dnf5 --refresh -y install heroic-games-launcher-bin || true
+sudo dnf5 -y copr enable faugus/faugus-launcher && sudo dnf5 --refresh -y install faugus-launcher || true
 
 shopt -s nullglob
 RPM_FILES=("$RPM_DIR"/*.rpm)
