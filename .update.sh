@@ -22,22 +22,18 @@ SCRIPT_LANG=$(detect_lang)
 if [ "$SCRIPT_LANG" = "pl" ]; then
     MSG_TITLE="                  KONSERWACJA SYSTEMU                  "
     MSG_ASK_PASS="Proszę podać hasło administratora (sudo):"
-    MSG_PHASE_UPDATE="[1/4] Aktualizacja rozszerzeń i firmware..."
-    MSG_PHASE_CLEAN_SYS="[2/4] Czyszczenie systemowe (sudo)..."
-    MSG_PHASE_CLEAN_USER="[3/4] Czyszczenie użytkownika..."
-    MSG_PHASE_RESTART="[4/4] Sprawdzanie konieczności restartu..."
-    MSG_DONE="AKTUALIZACJA I CZYSZCZENIE ZAKOŃCZONE!"
+    MSG_PHASE_UPDATE="[1/2] Aktualizacja i optymalizacja..."
+    MSG_PHASE_CLEAN_SYS="[2/2] Czyszczenie systemowe..."
+    MSG_DONE="             KONSERWACJA SYSTEMU ZAKOŃCZONA!           "
     MSG_RESTART_WARN="UWAGA: Zalecany jest restart komputera"
     MSG_NO_RESTART="Restart systemu nie jest aktualnie wymagany."
     MSG_PRESS_ENTER="Naciśnij Enter, aby zamknąć okno..."
 else
-    MSG_TITLE="                 SYSTEM MAINTENANCE                    "
+    MSG_TITLE="                   SYSTEM MAINTENANCE                   "
     MSG_ASK_PASS="Please enter the administrator (sudo) password:"
-    MSG_PHASE_UPDATE="[1/4] Updating extensions and firmware..."
-    MSG_PHASE_CLEAN_SYS="[2/4] System cleanup (sudo)..."
-    MSG_PHASE_CLEAN_USER="[3/4] User cleanup..."
-    MSG_PHASE_RESTART="[4/4] Checking if a restart is needed..."
-    MSG_DONE="UPDATE AND CLEANUP COMPLETE!"
+    MSG_PHASE_UPDATE="[1/2] Updates and optimization..."
+    MSG_PHASE_CLEAN_SYS="[2/2] System cleanup..."
+    MSG_DONE="             SYSTEM MAINTENANCE COMPLETE!           "
     MSG_RESTART_WARN="WARNING: A system restart is recommended"
     MSG_NO_RESTART="A system restart is not currently required."
     MSG_PRESS_ENTER="Press Enter to close this window..."
@@ -172,7 +168,7 @@ OLD_KERNELS=$(dnf repoquery --installonly --latest-limit=-2 -q 2>/dev/null)
 if [ -n "$OLD_KERNELS" ]; then
     sudo env LC_ALL=C dnf remove -y $OLD_KERNELS
 fi
-STEP=$((STEP+1)); show_progress $STEP $TOTAL_STEPS "$MSG_PHASE_CLEAN_USER"
+STEP=$((STEP+1)); show_progress $STEP $TOTAL_STEPS "$MSG_PHASE_CLEAN_SYS"
 
 # ---------------------------------------------------------------
 # PHASE: USER CLEANUP
@@ -184,20 +180,20 @@ find ~/.cache -type f -atime +14 \
     ! -path "*/BraveSoftware/*" \
     ! -path "*/opera/*" \
     -delete 2>/dev/null
-STEP=$((STEP+1)); show_progress $STEP $TOTAL_STEPS "$MSG_PHASE_CLEAN_USER"
+STEP=$((STEP+1)); show_progress $STEP $TOTAL_STEPS "$MSG_PHASE_CLEAN_SYS"
 
 find ~/.cache/thumbnails -type f -atime +7 -delete 2>/dev/null
-STEP=$((STEP+1)); show_progress $STEP $TOTAL_STEPS "$MSG_PHASE_CLEAN_USER"
+STEP=$((STEP+1)); show_progress $STEP $TOTAL_STEPS "$MSG_PHASE_CLEAN_SYS"
 
 fc-cache -fv
-STEP=$((STEP+1)); show_progress $STEP $TOTAL_STEPS "$MSG_PHASE_CLEAN_USER"
+STEP=$((STEP+1)); show_progress $STEP $TOTAL_STEPS "$MSG_PHASE_CLEAN_SYS"
 
 USER_ID=$(id -u)
 if [ -S "/run/user/$USER_ID/bus" ]; then
     DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$USER_ID/bus" dconf reset /org/virt-manager/virt-manager/urls/isos 2>/dev/null
 fi
 rm -rf "$HOME/.cache/virt-manager" 2>/dev/null
-STEP=$((STEP+1)); show_progress $STEP $TOTAL_STEPS "$MSG_PHASE_RESTART"
+STEP=$((STEP+1)); show_progress $STEP $TOTAL_STEPS "$MSG_PHASE_CLEAN_SYS"
 
 # ---------------------------------------------------------------
 # PHASE: RESTART CHECK
@@ -211,12 +207,12 @@ elif command -v needs-restarting &> /dev/null; then
         REBOOT_NEEDED=true
     fi
 fi
-STEP=$((STEP+1)); show_progress $STEP $TOTAL_STEPS "$MSG_PHASE_RESTART"
+STEP=$((STEP+1)); show_progress $STEP $TOTAL_STEPS "$MSG_PHASE_CLEAN_SYS"
 
 if [ "$FWUPD_RESTART_NEEDED" = true ]; then
     REBOOT_NEEDED=true
 fi
-STEP=$((STEP+1)); show_progress $STEP $TOTAL_STEPS "$MSG_PHASE_RESTART"
+STEP=$((STEP+1)); show_progress $STEP $TOTAL_STEPS "$MSG_PHASE_CLEAN_SYS"
 
 echo -e "\n" >&3
 echo -e "${GREEN}======================================================${NC}" >&3
