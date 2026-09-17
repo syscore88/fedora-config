@@ -117,7 +117,7 @@ STEP=0
 show_progress $STEP $TOTAL_STEPS "$MSG_PHASE_UPDATE"
 
 # ---------------------------------------------------------------
-# PHASE: UPDATE (rozszerzenia i firmware — bez aktualizacji systemowej)
+# PHASE: UPDATE 
 # ---------------------------------------------------------------
 if command -v gext &> /dev/null; then
     gext update
