@@ -1,7 +1,7 @@
 #!/bin/bash
 # ==========================================================
 # KOMPLEKSOWY SKRYPT KONFIGURACYJNY SYSTEMU (FEDORA)
-# ==========================================================
+# ========================================================== 
 
 set -Eeuo pipefail
 export PATH="/usr/sbin:/sbin:$PATH"
