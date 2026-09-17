@@ -31,6 +31,7 @@ exec >>"$TMP_LOG" 2>&1
 
 cleanup_on_exit() {
     local exit_code=$?
+    declare -F restore_packagekit >/dev/null && restore_packagekit || true
     printf '\033[?7h' >&3
     if [ "$exit_code" -ne 0 ] || [ "${#FAILED_PACKAGES[@]}" -gt 0 ]; then
         echo -e "\n" >&3
@@ -55,6 +56,70 @@ log_err()   { local m; m="$(_pick_msg "$1" "$2")"; _log_write "${ERR}✘ ERROR: 
 log_warn()  { local m; m="$(_pick_msg "$1" "$2")"; _log_write "${WARN}⚠ WARN: $m${NC}"; }
 
 trap 'log_err "Błąd w linii $LINENO. Polecenie: $BASH_COMMAND" "Error at line $LINENO. Command: $BASH_COMMAND"' ERR
+
+# ==========================================================
+# PACKAGEKIT + BLOKADA DNF/RPM
+# ==========================================================
+PACKAGEKIT_MASKED=0
+PACKAGEKIT_UNITS=(
+    packagekit.service packagekit-offline-update.service
+    dnf-makecache.timer dnf-makecache.service
+    dnf5-makecache.timer dnf5-makecache.service
+)
+
+disable_packagekit() {
+    [[ "${PACKAGEKIT_MASKED:-0}" -eq 1 ]] && return 0
+    sudo systemctl stop "${PACKAGEKIT_UNITS[@]}" 2>/dev/null || true
+    if command -v killall >/dev/null 2>&1; then
+        sudo killall -q packagekitd 2>/dev/null || true
+    else
+        sudo pkill -x packagekitd 2>/dev/null || true
+    fi
+    sudo systemctl mask "${PACKAGEKIT_UNITS[@]}" 2>/dev/null || true
+    PACKAGEKIT_MASKED=1
+    log_info "PackageKit i timery dnf-makecache zatrzymane oraz zamaskowane na czas instalacji." \
+             "PackageKit and the dnf-makecache timers are stopped and masked for the install."
+}
+
+restore_packagekit() {
+    [[ "${PACKAGEKIT_MASKED:-0}" -eq 1 ]] || return 0
+    sudo systemctl unmask "${PACKAGEKIT_UNITS[@]}" 2>/dev/null || true
+    PACKAGEKIT_MASKED=0
+    log_info "PackageKit i timery dnf-makecache odmaskowane." \
+             "PackageKit and the dnf-makecache timers are unmasked."
+}
+
+_rpm_lock_busy() {
+    local f
+    for f in /var/lib/rpm/.rpm.lock /usr/lib/sysimage/rpm/.rpm.lock \
+             /var/cache/dnf/metadata_lock.pid; do
+        [[ -e "$f" ]] || continue
+        sudo fuser "$f" >/dev/null 2>&1 && return 0
+    done
+    pgrep -x 'dnf|dnf5|dnf-automatic|rpm|packagekitd' >/dev/null 2>&1 && return 0
+    return 1
+}
+
+wait_for_rpm_lock() {
+    local timeout="${1:-300}" waited=0
+    disable_packagekit
+    while _rpm_lock_busy; do
+        if (( waited >= timeout )); then
+            log_warn "Blokada dnf/rpm trwa ponad ${timeout}s - próbuję ją zwolnić." \
+                     "dnf/rpm lock held for over ${timeout}s - trying to release it."
+            sudo killall -q packagekitd 2>/dev/null || sudo pkill -x packagekitd 2>/dev/null || true
+            if pgrep -x 'dnf|dnf5|rpm' >/dev/null 2>&1; then
+                log_warn "Transakcja dnf/rpm wciąż trwa - nie ruszam plików blokady, kontynuuję." \
+                         "A dnf/rpm transaction is still running - leaving the lock files alone, continuing."
+            else
+                sudo rm -f /var/cache/dnf/metadata_lock.pid /var/cache/libdnf5/*.lock 2>/dev/null || true
+            fi
+            break
+        fi
+        sleep 3
+        waited=$(( waited + 3 ))
+    done
+}
 
 show_progress() {
     local step=$1
@@ -155,19 +220,6 @@ fi
 
 printf '\033[?7l' >&3
 
-wait_for_rpm_lock() {
-    local i=0
-    while pgrep -x dnf >/dev/null || pgrep -x dnf5 >/dev/null || pgrep -x packagekitd >/dev/null || pgrep -x rpm >/dev/null; do
-        if (( i++ >= 24 )); then
-            sudo systemctl stop packagekit.service dnf-makecache.service dnf5-makecache.service 2>/dev/null || true
-            sudo killall -9 dnf dnf5 rpm packagekitd 2>/dev/null || true
-            sudo rm -f /var/lib/rpm/.rpm.lock /usr/lib/sysimage/rpm/.rpm.lock /var/cache/libdnf5/*.lock 2>/dev/null || true
-            break
-        fi
-        sleep 5
-    done
-}
-
 # ==========================================================
 #  ETAP 1/4: PRZYGOTOWYWANIE
 # ==========================================================
@@ -190,9 +242,7 @@ fi
 
 show_progress 1 $TOTAL_STEPS "$MSG_PHASE_1"
 
-sudo systemctl stop packagekit.service packagekit-offline-update.service dnf-makecache.timer dnf-makecache.service dnf5-makecache.timer dnf5-makecache.service 2>/dev/null || true
-sudo systemctl mask packagekit.service packagekit-offline-update.service dnf-makecache.timer dnf-makecache.service dnf5-makecache.timer dnf5-makecache.service 2>/dev/null || true
-sudo killall -9 packagekitd dnf dnf5 rpm 2>/dev/null || true
+disable_packagekit
 
 for DNF_CONF in /etc/dnf/dnf.conf /etc/dnf/dnf5.conf; do
     if [[ -f "$DNF_CONF" ]]; then
@@ -440,6 +490,7 @@ else
     dest="/tmp/discord.rpm"
     if wget -q --user-agent="Mozilla/5.0" "https://discord.com/api/download?platform=linux&format=rpm" -O "$dest"; then
         if file "$dest" | grep -q "RPM"; then
+            wait_for_rpm_lock
             sudo dnf5 install -y "$dest" || true
             rm -f "$dest"
         fi
@@ -558,7 +609,7 @@ sudo flatpak install -y flathub it.mijorus.gearlever || true
 # ==========================================================
 show_progress 9 $TOTAL_STEPS "$MSG_PHASE_3"
 
-sudo systemctl unmask packagekit.service packagekit-offline-update.service dnf-makecache.timer dnf-makecache.service dnf5-makecache.timer dnf5-makecache.service 2>/dev/null || true
+restore_packagekit
 sudo systemctl enable fstrim.timer || true
 sudo journalctl --vacuum-time=2d || true
 
