@@ -92,13 +92,15 @@ show_progress() {
 }
 
 if [[ "$SCRIPT_LANG" == "pl" ]]; then
-    MSG_PHASE_1="[1/3] Konfiguracja i optymalizacja systemu..."
-    MSG_PHASE_2="[2/3] Instalacja pakietów systemowych, Flathub i paczek RPM..."
-    MSG_PHASE_3="[3/3] Konfiguracja usług, bootloadera i środowiska..."
+    MSG_PHASE_1="[1/4] Przygotowywanie..."
+    MSG_PHASE_2="[2/4] Instalacja..."
+    MSG_PHASE_3="[3/4] Optymalizacja..."
+    MSG_PHASE_4="[4/4] Finalizowanie..."
 else
-    MSG_PHASE_1="[1/3] System configuration and optimization..."
-    MSG_PHASE_2="[2/3] Installing system, Flathub, and RPM packages..."
-    MSG_PHASE_3="[3/3] Configuring services, bootloader, and environment..."
+    MSG_PHASE_1="[1/4] Preparing..."
+    MSG_PHASE_2="[2/4] Installing..."
+    MSG_PHASE_3="[3/4] Optimizing..."
+    MSG_PHASE_4="[4/4] Finalizing..."
 fi
 
 TOTAL_STEPS=12
@@ -167,7 +169,7 @@ wait_for_rpm_lock() {
 }
 
 # ==========================================================
-#  ETAP 1/3: KONFIGURACJA I OPTYMALIZACJA SYSTEMU
+#  ETAP 1/4: PRZYGOTOWYWANIE
 # ==========================================================
 show_progress 0 $TOTAL_STEPS "$MSG_PHASE_1"
 
@@ -308,7 +310,7 @@ EOF
 fi
 
 # ==========================================================
-#  ETAP 2/3: INSTALACJA PAKIETÓW I OPROGRAMOWANIA
+#  ETAP 2/4: INSTALACJA
 # ==========================================================
 show_progress 4 $TOTAL_STEPS "$MSG_PHASE_2"
 
@@ -551,7 +553,7 @@ sudo flatpak install -y flathub com.github.tchx84.Flatseal || true
 sudo flatpak install -y flathub it.mijorus.gearlever || true
 
 # ==========================================================
-#  ETAP 3/3: KONFIGURACJA USŁUG, BOOTLOADERA I ŚRODOWISKA
+#  ETAP 3/4: OPTYMALIZACJA
 # ==========================================================
 show_progress 9 $TOTAL_STEPS "$MSG_PHASE_3"
 
@@ -603,7 +605,10 @@ else
     sudo rm -f /etc/sudoers.d/99-temp-installer
 fi
 
-show_progress 12 $TOTAL_STEPS "$MSG_PHASE_3"
+# =============================================================
+#  ETAP 4/4: CZYSZCZENIE
+# =============================================================
+show_progress 12 $TOTAL_STEPS "$MSG_PHASE_4"
 echo -e "\n" >&3
 
 if [ "${#FAILED_PACKAGES[@]}" -gt 0 ]; then
