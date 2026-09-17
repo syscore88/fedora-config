@@ -20,7 +20,7 @@ detect_lang() {
 SCRIPT_LANG=$(detect_lang)
 
 if [ "$SCRIPT_LANG" = "pl" ]; then
-    MSG_TITLE="         SKRYPT AKTUALIZACJI ROZSZERZEŃ I CZYSZCZENIA  "
+    MSG_TITLE="                  KONSERWACJA SYSTEMU                  "
     MSG_ASK_PASS="Proszę podać hasło administratora (sudo):"
     MSG_PHASE_UPDATE="[1/4] Aktualizacja rozszerzeń i firmware..."
     MSG_PHASE_CLEAN_SYS="[2/4] Czyszczenie systemowe (sudo)..."
@@ -31,7 +31,7 @@ if [ "$SCRIPT_LANG" = "pl" ]; then
     MSG_NO_RESTART="Restart systemu nie jest aktualnie wymagany."
     MSG_PRESS_ENTER="Naciśnij Enter, aby zamknąć okno..."
 else
-    MSG_TITLE="       EXTENSIONS UPDATE AND CLEANUP SCRIPT           "
+    MSG_TITLE="                 SYSTEM MAINTENANCE                    "
     MSG_ASK_PASS="Please enter the administrator (sudo) password:"
     MSG_PHASE_UPDATE="[1/4] Updating extensions and firmware..."
     MSG_PHASE_CLEAN_SYS="[2/4] System cleanup (sudo)..."
