@@ -1,7 +1,7 @@
 #!/bin/bash
 # ==========================================================
 # KOMPLEKSOWY SKRYPT KONFIGURACYJNY SYSTEMU (FEDORA)
-# ========================================================== 
+# ==========================================================
 
 set -Eeuo pipefail
 export PATH="/usr/sbin:/sbin:$PATH"
@@ -11,7 +11,7 @@ detect_system_lang() {
     [[ -z "$sys_lang" ]] && sys_lang="${LC_ALL:-${LC_MESSAGES:-}}"
     if [[ "$sys_lang" == pl* ]]; then
         echo "pl"
-    else 
+    else
         echo "en"
     fi
 }
@@ -31,7 +31,10 @@ exec >>"$TMP_LOG" 2>&1
 
 cleanup_on_exit() {
     local exit_code=$?
+    [[ -n "${RUN0_NOPASSWD_FILE:-}" && -f "$RUN0_NOPASSWD_FILE" ]] && { sudo rm -f "$RUN0_NOPASSWD_FILE"; sudo systemctl try-restart polkit 2>/dev/null || true; }
+    [[ -f /etc/sudoers.d/99-temp-installer ]] && sudo rm -f /etc/sudoers.d/99-temp-installer
     declare -F restore_packagekit >/dev/null && restore_packagekit || true
+    [ -n "${SUDO_KEEPALIVE_PID:-}" ] && kill "$SUDO_KEEPALIVE_PID" 2>/dev/null || true
     printf '\033[?7h' >&3
     if [ "$exit_code" -ne 0 ] || [ "${#FAILED_PACKAGES[@]}" -gt 0 ]; then
         echo -e "\n" >&3
@@ -77,12 +80,16 @@ disable_packagekit() {
     fi
     sudo systemctl mask "${PACKAGEKIT_UNITS[@]}" 2>/dev/null || true
     PACKAGEKIT_MASKED=1
+    log_info "PackageKit i timery dnf-makecache zatrzymane oraz zamaskowane na czas instalacji." \
+             "PackageKit and the dnf-makecache timers are stopped and masked for the install."
 }
 
 restore_packagekit() {
     [[ "${PACKAGEKIT_MASKED:-0}" -eq 1 ]] || return 0
     sudo systemctl unmask "${PACKAGEKIT_UNITS[@]}" 2>/dev/null || true
     PACKAGEKIT_MASKED=0
+    log_info "PackageKit i timery dnf-makecache odmaskowane." \
+             "PackageKit and the dnf-makecache timers are unmasked."
 }
 
 _rpm_lock_busy() {
@@ -188,33 +195,26 @@ if [[ "$SCRIPT_LANG" == "pl" ]]; then
 else
     printf 'sudo password required:\n' >&3
 fi
-read -rs SUDO_PASS < /dev/tty
-printf '\n' >&3
-if ! printf '%s\n' "$SUDO_PASS" | sudo -S -p '' -v 2>/dev/null; then
-    unset SUDO_PASS
-    if [[ "$SCRIPT_LANG" == "pl" ]]; then
-        echo -e "${ERR}✘ Nieprawidłowe hasło sudo. Jeśli konto root ma osobne hasło, dodaj 'Defaults targetpw' w /etc/sudoers i podaj hasło roota.${NC}" >&3
-    else
-        echo -e "${ERR}✘ Incorrect sudo password. If root has a separate password, add 'Defaults targetpw' to /etc/sudoers and enter the root password.${NC}" >&3
-    fi
-    exit 1
-fi
+sudo -v
+( while true; do sudo -n true; sleep 60; kill -0 "$$" 2>/dev/null || exit; done ) &
+SUDO_KEEPALIVE_PID=$!
 
 if [[ "$USE_RUN0" -eq 1 ]]; then
-    printf '%s\n' "$SUDO_PASS" | sudo -S -p '' tee "$RUN0_NOPASSWD_FILE" > /dev/null <<EOF
+    sudo tee "$RUN0_NOPASSWD_FILE" > /dev/null << EOF
 polkit.addRule(function(action, subject) {
-    if (subject.user == "$CURRENT_USER") {
+    if (action.id == "org.freedesktop.systemd1.manage-units" &&
+        subject.user == "$CURRENT_USER") {
         return polkit.Result.YES;
     }
 });
 EOF
-    printf '%s\n' "$SUDO_PASS" | sudo -S -p '' systemctl try-restart polkit 2>/dev/null || true
+    sudo systemctl try-restart polkit 2>/dev/null || true
 else
     SUDOERS_TMP="$(mktemp)"
     echo "$CURRENT_USER ALL=(ALL) NOPASSWD: ALL" > "$SUDOERS_TMP"
     chmod 0440 "$SUDOERS_TMP"
-    if printf '%s\n' "$SUDO_PASS" | sudo -S -p '' visudo -cf "$SUDOERS_TMP" &>/dev/null; then
-        printf '%s\n' "$SUDO_PASS" | sudo -S -p '' install -m 0440 -o root -g root "$SUDOERS_TMP" /etc/sudoers.d/99-temp-installer
+    if sudo visudo -cf "$SUDOERS_TMP" &>/dev/null; then
+        sudo install -m 0440 -o root -g root "$SUDOERS_TMP" /etc/sudoers.d/99-temp-installer
     else
         rm -f "$SUDOERS_TMP"
         echo -e "${ERR}✖ Nieprawidłowa składnia pliku sudoers – przerywam.${NC}" >&3
@@ -222,17 +222,21 @@ else
     fi
     rm -f "$SUDOERS_TMP"
 fi
-unset SUDO_PASS
-if ! sudo -n true 2>/dev/null; then
-    if [[ "$SCRIPT_LANG" == "pl" ]]; then
-        echo -e "${ERR}✘ Nie udało się skonfigurować uprawnień bezhasłowych sudo - przerywam.${NC}" >&3
-    else
-        echo -e "${ERR}✘ Failed to configure passwordless sudo - aborting.${NC}" >&3
-    fi
-    exit 1
-fi
 
 printf '\033[?7l' >&3
+
+wait_for_rpm_lock() {
+    local i=0
+    while pgrep -x dnf >/dev/null || pgrep -x dnf5 >/dev/null || pgrep -x packagekitd >/dev/null || pgrep -x rpm >/dev/null; do
+        if (( i++ >= 24 )); then
+            sudo systemctl stop packagekit.service dnf-makecache.service dnf5-makecache.service 2>/dev/null || true
+            sudo killall -9 dnf dnf5 rpm packagekitd 2>/dev/null || true
+            sudo rm -f /var/lib/rpm/.rpm.lock /usr/lib/sysimage/rpm/.rpm.lock /var/cache/libdnf5/*.lock 2>/dev/null || true
+            break
+        fi
+        sleep 5
+    done
+}
 
 # ==========================================================
 #  ETAP 1/4: PRZYGOTOWYWANIE
@@ -256,6 +260,9 @@ fi
 
 show_progress 1 $TOTAL_STEPS "$MSG_PHASE_1"
 
+sudo systemctl stop packagekit.service packagekit-offline-update.service dnf-makecache.timer dnf-makecache.service dnf5-makecache.timer dnf5-makecache.service 2>/dev/null || true
+sudo systemctl mask packagekit.service packagekit-offline-update.service dnf-makecache.timer dnf-makecache.service dnf5-makecache.timer dnf5-makecache.service 2>/dev/null || true
+sudo killall -9 packagekitd dnf dnf5 rpm 2>/dev/null || true
 disable_packagekit
 
 for DNF_CONF in /etc/dnf/dnf.conf /etc/dnf/dnf5.conf; do
@@ -380,13 +387,13 @@ fi
 show_progress 4 $TOTAL_STEPS "$MSG_PHASE_2"
 
 PACKAGES=(
-    google-chrome-stable brave-origin 
+    google-chrome-stable brave-origin
     dconf-editor hunspell-pl fastfetch unrar git mc exfatprogs ntfs-3g vim-enhanced
     os-prober android-tools fsarchiver inxi pv rsync python3-defusedxml
     python3-packaging python3-pip pipx 7zip zenity innoextract makeself
     bleachbit timeshift vlc vlc-extras vulkan-headers vulkan-loader-devel
     audacity gimp gmic mixxx kdenlive soundconverter HandBrake-gui
-    telegram-desktop qbittorrent qmmp qmmp-plugin-pack pkgconf-pkg-config 
+    telegram-desktop qbittorrent qmmp qmmp-plugin-pack pkgconf-pkg-config
     wine winetricks qt6-qtdeclarative qt6-qtbase libayatana-appindicator-gtk3
     gamemode vulkan-tools gamescope mangohud  cmake meson ninja-build python3-tqdm just
     gstreamer1-plugins-good gstreamer1-plugins-bad-free gstreamer1-plugins-ugly
@@ -424,32 +431,21 @@ for f in /etc/xdg/autostart/gcdemu.desktop /etc/xdg/autostart/cdemu.desktop /usr
 done
 pkill -f gcdemu 2>/dev/null || true
 
-wait_for_rpm_lock
-sudo dnf install -y \
-    curl \
-    llvm clang clang-tools-extra \
-    mesa-libGL-devel \
-    qt6-qtbase-devel \
-    qt6-qttools-devel \
-    qt6-qtdeclarative-devel || true
-
-LSFG_SRC_DIR="$(mktemp -d)"
-if git clone --depth=1 https://git.lsfg-vk.dev/lsfg-vk.git "$LSFG_SRC_DIR/lsfg-vk"; then
-    (
-        cd "$LSFG_SRC_DIR/lsfg-vk"
-        cmake -B build -G Ninja \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=ON \
-            -DCMAKE_INSTALL_PREFIX=/usr/local \
-            -DCMAKE_CXX_COMPILER=clang++ \
-            -DLSFGVK_BUILD_UI=ON
-        cmake --build build
-        sudo cmake --install build
-    ) || log_warn "Nie udało się zbudować lsfg-vk ze źródeł." "Failed to build lsfg-vk from source."
-else
-    log_warn "Nie udało się sklonować repozytorium lsfg-vk." "Failed to clone the lsfg-vk repository."
+LSFG_TMP="$(mktemp -d)"
+LSFG_UA="Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0"
+LSFG_HTML="$(curl -fsSL -A "$LSFG_UA" -e "https://builds.lsfg-vk.dev/" "https://builds.lsfg-vk.dev/" 2>/dev/null || true)"
+LSFG_URL="$(printf '%s' "$LSFG_HTML" | grep -oiE 'https?://[^"'"'"'<>[:space:]]+\.tar\.xz' | grep -i linux | head -n1 || true)"
+if [[ -z "$LSFG_URL" ]]; then
+    LSFG_URL="$(printf '%s' "$LSFG_HTML" | grep -oiE 'https?://[^"'"'"'<>[:space:]]+\.tar\.xz' | head -n1 || true)"
 fi
-rm -rf "$LSFG_SRC_DIR"
+if [[ -n "$LSFG_URL" ]] && curl -fsSL -A "$LSFG_UA" -o "$LSFG_TMP/lsfg-vk.tar.xz" "$LSFG_URL" 2>/dev/null && tar -tf "$LSFG_TMP/lsfg-vk.tar.xz" &>/dev/null; then
+    mkdir -p "$HOME/.local"
+    tar -xf "$LSFG_TMP/lsfg-vk.tar.xz" -C "$HOME/.local"
+    echo "lsfg-vk zainstalowano z $LSFG_URL"
+else
+    echo "lsfg-vk: nie udalo sie pobrac paczki z builds.lsfg-vk.dev, pomijam" >&2
+fi
+rm -rf "$LSFG_TMP"
 
 show_progress 5 $TOTAL_STEPS "$MSG_PHASE_2"
 
@@ -642,6 +638,7 @@ sudo flatpak install -y flathub it.mijorus.gearlever || true
 # ==========================================================
 show_progress 9 $TOTAL_STEPS "$MSG_PHASE_3"
 
+sudo systemctl unmask packagekit.service packagekit-offline-update.service dnf-makecache.timer dnf-makecache.service dnf5-makecache.timer dnf5-makecache.service 2>/dev/null || true
 restore_packagekit
 sudo systemctl enable fstrim.timer || true
 sudo journalctl --vacuum-time=2d || true
@@ -683,12 +680,6 @@ if command -v zsh &>/dev/null; then
     fi
 fi
 
-if [[ "$USE_RUN0" -eq 1 ]]; then
-    sudo rm -f "$RUN0_NOPASSWD_FILE"
-    sudo systemctl try-restart polkit 2>/dev/null || true
-else
-    sudo rm -f /etc/sudoers.d/99-temp-installer
-fi
 
 # =============================================================
 #  ETAP 4/4: CZYSZCZENIE
