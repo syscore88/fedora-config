@@ -77,16 +77,12 @@ disable_packagekit() {
     fi
     sudo systemctl mask "${PACKAGEKIT_UNITS[@]}" 2>/dev/null || true
     PACKAGEKIT_MASKED=1
-    log_info "PackageKit i timery dnf-makecache zatrzymane oraz zamaskowane na czas instalacji." \
-             "PackageKit and the dnf-makecache timers are stopped and masked for the install."
 }
 
 restore_packagekit() {
     [[ "${PACKAGEKIT_MASKED:-0}" -eq 1 ]] || return 0
     sudo systemctl unmask "${PACKAGEKIT_UNITS[@]}" 2>/dev/null || true
     PACKAGEKIT_MASKED=0
-    log_info "PackageKit i timery dnf-makecache odmaskowane." \
-             "PackageKit and the dnf-makecache timers are unmasked."
 }
 
 _rpm_lock_busy() {
@@ -192,30 +188,48 @@ if [[ "$SCRIPT_LANG" == "pl" ]]; then
 else
     printf 'sudo password required:\n' >&3
 fi
-sudo -v
+read -rs SUDO_PASS < /dev/tty
+printf '\n' >&3
+if ! printf '%s\n' "$SUDO_PASS" | sudo -S -p '' -v 2>/dev/null; then
+    unset SUDO_PASS
+    if [[ "$SCRIPT_LANG" == "pl" ]]; then
+        echo -e "${ERR}✘ Nieprawidłowe hasło sudo. Jeśli konto root ma osobne hasło, dodaj 'Defaults targetpw' w /etc/sudoers i podaj hasło roota.${NC}" >&3
+    else
+        echo -e "${ERR}✘ Incorrect sudo password. If root has a separate password, add 'Defaults targetpw' to /etc/sudoers and enter the root password.${NC}" >&3
+    fi
+    exit 1
+fi
 
 if [[ "$USE_RUN0" -eq 1 ]]; then
-    sudo tee "$RUN0_NOPASSWD_FILE" > /dev/null << EOF
+    printf '%s\n' "$SUDO_PASS" | sudo -S -p '' tee "$RUN0_NOPASSWD_FILE" > /dev/null <<EOF
 polkit.addRule(function(action, subject) {
-    if (action.id == "org.freedesktop.systemd1.manage-units" &&
-        subject.user == "$CURRENT_USER") {
+    if (subject.user == "$CURRENT_USER") {
         return polkit.Result.YES;
     }
 });
 EOF
-    sudo systemctl try-restart polkit 2>/dev/null || true
+    printf '%s\n' "$SUDO_PASS" | sudo -S -p '' systemctl try-restart polkit 2>/dev/null || true
 else
     SUDOERS_TMP="$(mktemp)"
     echo "$CURRENT_USER ALL=(ALL) NOPASSWD: ALL" > "$SUDOERS_TMP"
     chmod 0440 "$SUDOERS_TMP"
-    if sudo visudo -cf "$SUDOERS_TMP" &>/dev/null; then
-        sudo install -m 0440 -o root -g root "$SUDOERS_TMP" /etc/sudoers.d/99-temp-installer
+    if printf '%s\n' "$SUDO_PASS" | sudo -S -p '' visudo -cf "$SUDOERS_TMP" &>/dev/null; then
+        printf '%s\n' "$SUDO_PASS" | sudo -S -p '' install -m 0440 -o root -g root "$SUDOERS_TMP" /etc/sudoers.d/99-temp-installer
     else
         rm -f "$SUDOERS_TMP"
         echo -e "${ERR}✖ Nieprawidłowa składnia pliku sudoers – przerywam.${NC}" >&3
         exit 1
     fi
     rm -f "$SUDOERS_TMP"
+fi
+unset SUDO_PASS
+if ! sudo -n true 2>/dev/null; then
+    if [[ "$SCRIPT_LANG" == "pl" ]]; then
+        echo -e "${ERR}✘ Nie udało się skonfigurować uprawnień bezhasłowych sudo - przerywam.${NC}" >&3
+    else
+        echo -e "${ERR}✘ Failed to configure passwordless sudo - aborting.${NC}" >&3
+    fi
+    exit 1
 fi
 
 printf '\033[?7l' >&3
