@@ -1,6 +1,6 @@
 #!/bin/bash
 # ==========================================================
-# KOMPLEKSOWY SKRYPT KONFIGURACYJNY SYSTEMU (FEDORA)
+# KOMPLEKSOWY SKRYPT KONFIGURACYJNY SYSTEMU FEDORA
 # ==========================================================
 
 set -Eeuo pipefail
