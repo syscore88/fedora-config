@@ -31,8 +31,6 @@ exec >>"$TMP_LOG" 2>&1
 
 cleanup_on_exit() {
     local exit_code=$?
-    [[ -n "${RUN0_NOPASSWD_FILE:-}" && -f "$RUN0_NOPASSWD_FILE" ]] && { sudo rm -f "$RUN0_NOPASSWD_FILE"; sudo systemctl try-restart polkit 2>/dev/null || true; }
-    [[ -f /etc/sudoers.d/99-temp-installer ]] && sudo rm -f /etc/sudoers.d/99-temp-installer
     declare -F restore_packagekit >/dev/null && restore_packagekit || true
     [ -n "${SUDO_KEEPALIVE_PID:-}" ] && kill "$SUDO_KEEPALIVE_PID" 2>/dev/null || true
     printf '\033[?7h' >&3
@@ -48,6 +46,14 @@ cleanup_on_exit() {
         fi
     fi
     rm -f "$TMP_LOG"
+    local do_reboot=0
+    [ "$exit_code" -eq 0 ] && [ "${DO_REBOOT:-0}" = "1" ] && do_reboot=1
+    if [ "${SUDO_READY:-0}" = "1" ]; then
+        sudo sh -c 'rm -f "$1" "$2"; systemctl try-restart polkit 2>/dev/null; [ "$3" = 1 ] && systemctl reboot' _ \
+            "${RUN0_NOPASSWD_FILE:-/etc/polkit-1/rules.d/51-run0-nopasswd.rules}" \
+            "/etc/sudoers.d/99-temp-installer" \
+            "$do_reboot"
+    fi
 }
 trap cleanup_on_exit EXIT
 
@@ -186,14 +192,7 @@ if ! command -v visudo >/dev/null 2>&1 || sudo --version 2>/dev/null | grep -qi 
     USE_RUN0=1
 fi
 
-if [[ "$SCRIPT_LANG" == "pl" ]]; then
-    printf 'Wymagane hasło sudo:\n' >&3
-else
-    printf 'sudo password required:\n' >&3
-fi
-( while true; do sudo -n true; sleep 60; kill -0 "$$" 2>/dev/null || exit; done ) &
-SUDO_KEEPALIVE_PID=$!
-
+SUDO_READY=0
 if [[ "$USE_RUN0" -eq 1 ]]; then
     sudo tee "$RUN0_NOPASSWD_FILE" > /dev/null << EOF
 polkit.addRule(function(action, subject) {
@@ -203,26 +202,38 @@ polkit.addRule(function(action, subject) {
 });
 EOF
     sudo systemctl try-restart polkit 2>/dev/null || true
-    sudo -n true 2>/dev/null || sudo systemctl try-restart polkit 2>/dev/null || true
+    SUDO_READY=1
 else
+    if [[ "$SCRIPT_LANG" == "pl" ]]; then
+        printf 'Wymagane hasło sudo:\n' >&3
+    else
+        printf 'sudo password required:\n' >&3
+    fi
+    sudo -v
+
+    (
+        set +e
+        trap - ERR
+        while true; do
+            sudo -n true
+            sleep 60
+            kill -0 "$$" 2>/dev/null || exit
+        done
+    ) &
+    SUDO_KEEPALIVE_PID=$!
+
     SUDOERS_TMP="$(mktemp)"
     echo "$CURRENT_USER ALL=(ALL) NOPASSWD: ALL" > "$SUDOERS_TMP"
     chmod 0440 "$SUDOERS_TMP"
     if sudo visudo -cf "$SUDOERS_TMP" &>/dev/null; then
         sudo install -m 0440 -o root -g root "$SUDOERS_TMP" /etc/sudoers.d/99-temp-installer
-        if ! sudo -n true 2>/dev/null; then
-            if [[ "$SCRIPT_LANG" == "pl" ]]; then
-                echo -e "${WARN}⚠ Reguła NOPASSWD zainstalowana, ale sudo nadal prosi o hasło - sprawdź 'sudo -l' (możliwa inna reguła w /etc/sudoers nadpisująca wpis z sudoers.d).${NC}" >&3
-            else
-                echo -e "${WARN}⚠ NOPASSWD rule installed, but sudo still asks for a password - check 'sudo -l' (a rule in /etc/sudoers may be overriding the sudoers.d entry).${NC}" >&3
-            fi
-        fi
     else
         rm -f "$SUDOERS_TMP"
         echo -e "${ERR}✖ Nieprawidłowa składnia pliku sudoers – przerywam.${NC}" >&3
         exit 1
     fi
     rm -f "$SUDOERS_TMP"
+    SUDO_READY=1
 fi
 
 printf '\033[?7l' >&3
@@ -398,6 +409,7 @@ PACKAGES=(
     telegram-desktop qbittorrent qmmp qmmp-plugin-pack pkgconf-pkg-config
     wine winetricks qt6-qtdeclarative qt6-qtbase libayatana-appindicator-gtk3
     gamemode vulkan-tools gamescope mangohud  cmake meson ninja-build python3-tqdm just
+    gcc-c++ clang llvm mesa-libGL-devel qt6-tools-devel
     gstreamer1-plugins-good gstreamer1-plugins-bad-free gstreamer1-plugins-ugly
     bluez-tools zsh zsh-syntax-highlighting zsh-autosuggestions
 )
@@ -436,16 +448,42 @@ pkill -f gcdemu 2>/dev/null || true
 LSFG_TMP="$(mktemp -d)"
 LSFG_UA="Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0"
 LSFG_HTML="$(curl -fsSL -A "$LSFG_UA" -e "https://builds.lsfg-vk.dev/" "https://builds.lsfg-vk.dev/" 2>/dev/null || true)"
-LSFG_URL="$(printf '%s' "$LSFG_HTML" | grep -oiE 'https?://[^"'"'"'<>[:space:]]+\.tar\.xz' | grep -i linux | head -n1 || true)"
+LSFG_LINKS="$(printf '%s' "$LSFG_HTML" | grep -oiE 'href="[^"]+\.tar\.xz"' | sed -E 's/^href="//I; s/"$//')
+$(printf '%s' "$LSFG_HTML" | grep -oiE 'https?://[^"'"'"'<>[:space:]]+\.tar\.xz')"
+LSFG_URL="$(printf '%s\n' "$LSFG_LINKS" | grep -i linux | head -n1 || true)"
 if [[ -z "$LSFG_URL" ]]; then
-    LSFG_URL="$(printf '%s' "$LSFG_HTML" | grep -oiE 'https?://[^"'"'"'<>[:space:]]+\.tar\.xz' | head -n1 || true)"
+    LSFG_URL="$(printf '%s\n' "$LSFG_LINKS" | head -n1 || true)"
+fi
+if [[ -n "$LSFG_URL" && "$LSFG_URL" != http* ]]; then
+    case "$LSFG_URL" in
+        /*) LSFG_URL="https://builds.lsfg-vk.dev${LSFG_URL}" ;;
+        *)  LSFG_URL="https://builds.lsfg-vk.dev/${LSFG_URL}" ;;
+    esac
 fi
 if [[ -n "$LSFG_URL" ]] && curl -fsSL -A "$LSFG_UA" -o "$LSFG_TMP/lsfg-vk.tar.xz" "$LSFG_URL" 2>/dev/null && tar -tf "$LSFG_TMP/lsfg-vk.tar.xz" &>/dev/null; then
     mkdir -p "$HOME/.local"
     tar -xf "$LSFG_TMP/lsfg-vk.tar.xz" -C "$HOME/.local"
-    echo "lsfg-vk zainstalowano z $LSFG_URL"
+    log_ok "lsfg-vk zainstalowano z $LSFG_URL" "lsfg-vk installed from $LSFG_URL"
 else
-    echo "lsfg-vk: nie udalo sie pobrac paczki z builds.lsfg-vk.dev, pomijam" >&2
+    log_warn "lsfg-vk: nie udało się pobrać gotowej paczki, buduję ze źródeł" \
+             "lsfg-vk: failed to download prebuilt package, building from source"
+    LSFG_SRC_DIR="$LSFG_TMP/lsfg-vk-src"
+    if git clone --depth=1 https://git.lsfg-vk.dev/lsfg-vk.git "$LSFG_SRC_DIR" && (
+            cd "$LSFG_SRC_DIR" &&
+            cmake -B build -G Ninja \
+                  -DCMAKE_BUILD_TYPE=Release \
+                  -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=ON \
+                  -DCMAKE_INSTALL_PREFIX=/usr/local \
+                  -DCMAKE_CXX_COMPILER=clang++ \
+                  -DLSFGVK_BUILD_UI=ON &&
+            cmake --build build &&
+            sudo cmake --install build
+        ); then
+        log_ok "lsfg-vk zbudowano i zainstalowano ze źródeł" "lsfg-vk built and installed from source"
+    else
+        log_warn "lsfg-vk: budowa ze źródeł nie powiodła się, pomijam" \
+                 "lsfg-vk: build from source failed, skipping"
+    fi
 fi
 rm -rf "$LSFG_TMP"
 
@@ -711,9 +749,7 @@ echo -en "${INFO}==> ${RESTART_PROMPT}${NC}" >&3
 read -r RESTART_CHOICE < /dev/tty
 case "$RESTART_CHOICE" in
     [YyTt]*)
-        systemctl reboot
-        ;;
-    *)
-        exit 0
+        DO_REBOOT=1
         ;;
 esac
+exit 0
