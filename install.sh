@@ -80,16 +80,12 @@ disable_packagekit() {
     fi
     sudo systemctl mask "${PACKAGEKIT_UNITS[@]}" 2>/dev/null || true
     PACKAGEKIT_MASKED=1
-    log_info "PackageKit i timery dnf-makecache zatrzymane oraz zamaskowane na czas instalacji." \
-             "PackageKit and the dnf-makecache timers are stopped and masked for the install."
 }
 
 restore_packagekit() {
     [[ "${PACKAGEKIT_MASKED:-0}" -eq 1 ]] || return 0
     sudo systemctl unmask "${PACKAGEKIT_UNITS[@]}" 2>/dev/null || true
     PACKAGEKIT_MASKED=0
-    log_info "PackageKit i timery dnf-makecache odmaskowane." \
-             "PackageKit and the dnf-makecache timers are unmasked."
 }
 
 _rpm_lock_busy() {
@@ -195,26 +191,32 @@ if [[ "$SCRIPT_LANG" == "pl" ]]; then
 else
     printf 'sudo password required:\n' >&3
 fi
-sudo -v
 ( while true; do sudo -n true; sleep 60; kill -0 "$$" 2>/dev/null || exit; done ) &
 SUDO_KEEPALIVE_PID=$!
 
 if [[ "$USE_RUN0" -eq 1 ]]; then
     sudo tee "$RUN0_NOPASSWD_FILE" > /dev/null << EOF
 polkit.addRule(function(action, subject) {
-    if (action.id == "org.freedesktop.systemd1.manage-units" &&
-        subject.user == "$CURRENT_USER") {
+    if (subject.user == "$CURRENT_USER") {
         return polkit.Result.YES;
     }
 });
 EOF
     sudo systemctl try-restart polkit 2>/dev/null || true
+    sudo -n true 2>/dev/null || sudo systemctl try-restart polkit 2>/dev/null || true
 else
     SUDOERS_TMP="$(mktemp)"
     echo "$CURRENT_USER ALL=(ALL) NOPASSWD: ALL" > "$SUDOERS_TMP"
     chmod 0440 "$SUDOERS_TMP"
     if sudo visudo -cf "$SUDOERS_TMP" &>/dev/null; then
         sudo install -m 0440 -o root -g root "$SUDOERS_TMP" /etc/sudoers.d/99-temp-installer
+        if ! sudo -n true 2>/dev/null; then
+            if [[ "$SCRIPT_LANG" == "pl" ]]; then
+                echo -e "${WARN}⚠ Reguła NOPASSWD zainstalowana, ale sudo nadal prosi o hasło - sprawdź 'sudo -l' (możliwa inna reguła w /etc/sudoers nadpisująca wpis z sudoers.d).${NC}" >&3
+            else
+                echo -e "${WARN}⚠ NOPASSWD rule installed, but sudo still asks for a password - check 'sudo -l' (a rule in /etc/sudoers may be overriding the sudoers.d entry).${NC}" >&3
+            fi
+        fi
     else
         rm -f "$SUDOERS_TMP"
         echo -e "${ERR}✖ Nieprawidłowa składnia pliku sudoers – przerywam.${NC}" >&3
