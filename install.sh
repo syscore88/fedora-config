@@ -408,7 +408,7 @@ PACKAGES=(
     audacity gimp gmic mixxx kdenlive soundconverter HandBrake-gui
     telegram-desktop qbittorrent qmmp pkgconf-pkg-config
     wine winetricks qt6-qtdeclarative qt6-qtbase libayatana-appindicator-gtk3
-    gamemode vulkan-tools gamescope mangohud  cmake meson ninja-build python3-tqdm just
+    gamemode vulkan-tools gamescope mangohud cmake meson ninja-build python3-tqdm just
     gcc-c++ clang llvm mesa-libGL-devel qt6-tools-devel 
     gstreamer1-plugins-good gstreamer1-plugins-bad-free gstreamer1-plugins-ugly
     bluez-tools zsh zsh-syntax-highlighting zsh-autosuggestions
