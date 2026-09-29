@@ -422,7 +422,7 @@ PACKAGES=(
     telegram-desktop qbittorrent qmmp pkgconf-pkg-config
     wine winetricks qt6-qtdeclarative qt6-qtbase libayatana-appindicator-gtk3
     gamemode vulkan-tools gamescope mangohud cmake meson ninja-build python3-tqdm just
-    gcc-c++ clang llvm mesa-libGL-devel qt6-tools-devel 
+    gcc-c++ clang llvm mesa-libGL-devel qt6-qttools-devel
     gstreamer1-plugins-good gstreamer1-plugins-bad-free gstreamer1-plugins-ugly
     bluez-tools zsh zsh-syntax-highlighting zsh-autosuggestions
 )
@@ -476,25 +476,8 @@ fi
 if [[ -n "$LSFG_URL" ]] && curl -fsSL -A "$LSFG_UA" -o "$LSFG_TMP/lsfg-vk.tar.xz" "$LSFG_URL" 2>/dev/null && tar -tf "$LSFG_TMP/lsfg-vk.tar.xz" &>/dev/null && mkdir -p "$HOME/.local" && tar -xf "$LSFG_TMP/lsfg-vk.tar.xz" -C "$HOME/.local"; then
     :
 else
-    log_warn "lsfg-vk: nie udało się pobrać gotowej paczki, buduję ze źródeł" \
-             "lsfg-vk: failed to download prebuilt package, building from source"
-    LSFG_SRC_DIR="$LSFG_TMP/lsfg-vk-src"
-    if git clone --depth=1 https://git.lsfg-vk.dev/lsfg-vk.git "$LSFG_SRC_DIR" && (
-            cd "$LSFG_SRC_DIR" &&
-            cmake -B build -G Ninja \
-                  -DCMAKE_BUILD_TYPE=Release \
-                  -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=ON \
-                  -DCMAKE_INSTALL_PREFIX=/usr/local \
-                  -DCMAKE_CXX_COMPILER=clang++ \
-                  -DLSFGVK_BUILD_UI=ON &&
-            cmake --build build &&
-            sudo cmake --install build
-        ); then
-        :
-    else
-        log_warn "lsfg-vk: budowa ze źródeł nie powiodła się, pomijam" \
-                 "lsfg-vk: build from source failed, skipping"
-    fi
+    log_warn "lsfg-vk: nie udało się pobrać gotowej paczki, pomijam" \
+             "lsfg-vk: failed to download prebuilt package, skipping"
 fi
 rm -rf "$LSFG_TMP"
 
@@ -599,7 +582,6 @@ rm -rf "$RPM_DIR"
 
 APPLICATIONS_DIR="$HOME/.local/share/applications"
 for shortcut in \
-    "gay.pancake.lsfg-vk-ui.desktop" \
     "io.github.eugeniosegala.mako.desktop" \
     "io.github.eugeniosegala.mako.uninstaller.desktop"; do
     rm -f "$APPLICATIONS_DIR/$shortcut"
