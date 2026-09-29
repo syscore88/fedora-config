@@ -473,10 +473,8 @@ if [[ -n "$LSFG_URL" && "$LSFG_URL" != http* ]]; then
         *)  LSFG_URL="https://builds.lsfg-vk.dev/${LSFG_URL}" ;;
     esac
 fi
-if [[ -n "$LSFG_URL" ]] && curl -fsSL -A "$LSFG_UA" -o "$LSFG_TMP/lsfg-vk.tar.xz" "$LSFG_URL" 2>/dev/null && tar -tf "$LSFG_TMP/lsfg-vk.tar.xz" &>/dev/null; then
-    mkdir -p "$HOME/.local"
-    tar -xf "$LSFG_TMP/lsfg-vk.tar.xz" -C "$HOME/.local"
-    log_ok "lsfg-vk zainstalowano z $LSFG_URL" "lsfg-vk installed from $LSFG_URL"
+if [[ -n "$LSFG_URL" ]] && curl -fsSL -A "$LSFG_UA" -o "$LSFG_TMP/lsfg-vk.tar.xz" "$LSFG_URL" 2>/dev/null && tar -tf "$LSFG_TMP/lsfg-vk.tar.xz" &>/dev/null && mkdir -p "$HOME/.local" && tar -xf "$LSFG_TMP/lsfg-vk.tar.xz" -C "$HOME/.local"; then
+    :
 else
     log_warn "lsfg-vk: nie udało się pobrać gotowej paczki, buduję ze źródeł" \
              "lsfg-vk: failed to download prebuilt package, building from source"
@@ -492,7 +490,7 @@ else
             cmake --build build &&
             sudo cmake --install build
         ); then
-        log_ok "lsfg-vk zbudowano i zainstalowano ze źródeł" "lsfg-vk built and installed from source"
+        :
     else
         log_warn "lsfg-vk: budowa ze źródeł nie powiodła się, pomijam" \
                  "lsfg-vk: build from source failed, skipping"
