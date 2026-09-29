@@ -251,6 +251,21 @@ wait_for_rpm_lock() {
     done
 }
 
+install_missing() {
+    local -a opts=() missing=()
+    local arg
+    for arg in "$@"; do
+        if [[ "$arg" == -* ]]; then
+            opts+=("$arg")
+        elif [[ "$arg" == @* ]] || ! rpm -q "$arg" &>/dev/null; then
+            missing+=("$arg")
+        fi
+    done
+    if (( ${#missing[@]} > 0 )); then
+        sudo dnf5 install "${opts[@]}" "${missing[@]}"
+    fi
+}
+
 # ==========================================================
 #  ETAP 1/4: PRZYGOTOWYWANIE
 # ==========================================================
@@ -287,16 +302,19 @@ done
 
 wait_for_rpm_lock
 for pkg in wget curl pciutils dconf; do
-    sudo dnf5 install -y "$pkg" || true
+    install_missing -y "$pkg" || true
 done
 
 show_progress 2 $TOTAL_STEPS "$MSG_PHASE_1"
 
 FEDORA_VER=$(rpm -E %fedora)
 wait_for_rpm_lock
-sudo dnf5 install -y \
-    "https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-${FEDORA_VER}.noarch.rpm" \
-    "https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-${FEDORA_VER}.noarch.rpm" || true
+RPMFUSION_URLS=()
+rpm -q rpmfusion-free-release &>/dev/null || RPMFUSION_URLS+=("https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-${FEDORA_VER}.noarch.rpm")
+rpm -q rpmfusion-nonfree-release &>/dev/null || RPMFUSION_URLS+=("https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-${FEDORA_VER}.noarch.rpm")
+if (( ${#RPMFUSION_URLS[@]} > 0 )); then
+    sudo dnf5 install -y "${RPMFUSION_URLS[@]}" || true
+fi
 
     wait_for_rpm_lock
 sudo dnf5 makecache --refresh || true
@@ -320,7 +338,7 @@ EOF
 
 wait_for_rpm_lock
 for pkg in dnf-plugins-core gnupg2; do
-    sudo dnf5 install -y "$pkg" || true
+    install_missing -y "$pkg" || true
 done
 
 BRAVE_KEY_ID="0686B78420038257"
@@ -350,7 +368,7 @@ fi
 show_progress 3 $TOTAL_STEPS "$MSG_PHASE_1"
 
 wait_for_rpm_lock
-sudo dnf5 install -y @development-tools @c-development gcc gcc-c++ make || true
+install_missing -y @development-tools @c-development gcc gcc-c++ make || true
 
 TO_REMOVE=(
     nano konqueror plasma-browser-integration plasma-vault krdp krfb cosmic-player
@@ -415,17 +433,17 @@ PACKAGES=(
 )
 
 wait_for_rpm_lock
-sudo dnf5 install -y --refresh --skip-unavailable "${PACKAGES[@]}" || true
+install_missing -y --refresh --skip-unavailable "${PACKAGES[@]}" || true
 for pkg in "${PACKAGES[@]}"; do
     rpm -q "$pkg" &>/dev/null || FAILED_PACKAGES+=("$pkg")
 done
 
 wait_for_rpm_lock
-sudo dnf5 install -y --skip-unavailable kernel-devel kernel-devel-matched || true
+install_missing -y --skip-unavailable kernel-devel kernel-devel-matched || true
 wait_for_rpm_lock
 sudo dnf5 -y copr enable rok/cdemu || true
 wait_for_rpm_lock
-sudo dnf5 install -y --skip-unavailable cdemu-daemon cdemu-client gcdemu || true
+install_missing -y --skip-unavailable cdemu-daemon cdemu-client gcdemu || true
 for pkg in cdemu-daemon cdemu-client; do
     rpm -q "$pkg" &>/dev/null || FAILED_PACKAGES+=("$pkg")
 done
@@ -538,7 +556,7 @@ else
 fi
 
 wait_for_rpm_lock
-sudo dnf5 install -y --refresh --skip-unavailable "${PACKAGES_32[@]}" || true
+install_missing -y --refresh --skip-unavailable "${PACKAGES_32[@]}" || true
 for pkg in "${PACKAGES_32[@]}"; do
     rpm -q "$pkg" &>/dev/null || FAILED_PACKAGES+=("$pkg")
 done
@@ -553,7 +571,9 @@ mkdir -p "$RPM_DIR"
 download_rpm() { wget -q --timeout=30 -O "$3" "$2" || rm -f "$3"; }
 
 wait_for_rpm_lock
-if sudo dnf5 repolist 2>/dev/null | grep -iq "rpmfusion-nonfree"; then
+if rpm -q discord &>/dev/null; then
+    :
+elif sudo dnf5 repolist 2>/dev/null | grep -iq "rpmfusion-nonfree"; then
     sudo dnf5 install -y discord || true
 else
     dest="/tmp/discord.rpm"
@@ -566,11 +586,14 @@ else
     fi
 fi
 
-OPENCODE_URL=$(curl -sfL https://api.github.com/repos/anomalyco/opencode/releases/latest | grep "browser_download_url.*opencode-desktop-linux-x86_64\.rpm" | cut -d '"' -f 4 || true)
+OPENCODE_URL=""
+rpm -q opencode-desktop &>/dev/null || OPENCODE_URL=$(curl -sfL https://api.github.com/repos/anomalyco/opencode/releases/latest | grep "browser_download_url.*opencode-desktop-linux-x86_64\.rpm" | cut -d '"' -f 4 || true)
 [[ -n "$OPENCODE_URL" ]] && download_rpm "opencode-desktop" "$OPENCODE_URL" "$RPM_DIR/opencode-desktop.rpm"
 
 wait_for_rpm_lock
-sudo dnf5 -y copr enable faugus/faugus-launcher && sudo dnf5 --refresh -y install faugus-launcher || true
+if ! rpm -q faugus-launcher &>/dev/null; then
+    sudo dnf5 -y copr enable faugus/faugus-launcher && sudo dnf5 --refresh -y install faugus-launcher || true
+fi
 
 shopt -s nullglob
 RPM_FILES=("$RPM_DIR"/*.rpm)
@@ -592,7 +615,7 @@ done
 show_progress 7 $TOTAL_STEPS "$MSG_PHASE_2"
 
 wait_for_rpm_lock
-sudo dnf5 install -y --skip-unavailable virt-manager qemu-kvm qemu-img libvirt libvirt-daemon-kvm edk2-ovmf dnsmasq || true
+install_missing -y --skip-unavailable virt-manager qemu-kvm qemu-img libvirt libvirt-daemon-kvm edk2-ovmf dnsmasq || true
 
 if command -v dconf &>/dev/null; then
     dconf load /org/virt-manager/virt-manager/ <<'DCONFEOF'
@@ -663,15 +686,15 @@ done
 show_progress 8 $TOTAL_STEPS "$MSG_PHASE_2"
 
 wait_for_rpm_lock
-sudo dnf5 install -y flatpak || true
+install_missing -y flatpak || true
 
 if ! flatpak remote-list 2>/dev/null | grep -q "^flathub"; then
     sudo flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo || true
 fi
 
 sudo flatpak update --appstream || true
-sudo flatpak install -y flathub com.github.tchx84.Flatseal || true
-sudo flatpak install -y flathub it.mijorus.gearlever || true
+flatpak info com.github.tchx84.Flatseal &>/dev/null || sudo flatpak install -y flathub com.github.tchx84.Flatseal || true
+flatpak info it.mijorus.gearlever &>/dev/null || sudo flatpak install -y flathub it.mijorus.gearlever || true
 
 # ==========================================================
 #  ETAP 3/4: OPTYMALIZACJA
