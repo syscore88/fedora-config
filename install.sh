@@ -204,11 +204,6 @@ EOF
     sudo systemctl try-restart polkit 2>/dev/null || true
     SUDO_READY=1
 else
-    if [[ "$SCRIPT_LANG" == "pl" ]]; then
-        printf 'Wymagane hasło sudo:\n' >&3
-    else
-        printf 'sudo password required:\n' >&3
-    fi
     sudo -v
 
     (
