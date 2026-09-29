@@ -461,9 +461,9 @@ pkill -f gcdemu 2>/dev/null || true
 LSFG_TMP="$(mktemp -d)"
 LSFG_UA="Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0"
 LSFG_HTML="$(curl -fsSL -A "$LSFG_UA" -e "https://builds.lsfg-vk.dev/" "https://builds.lsfg-vk.dev/" 2>/dev/null || true)"
-LSFG_LINKS="$(printf '%s' "$LSFG_HTML" | grep -oiE 'href="[^"]+\.tar\.xz"' | sed -E 's/^href="//I; s/"$//')
-$(printf '%s' "$LSFG_HTML" | grep -oiE 'https?://[^"'"'"'<>[:space:]]+\.tar\.xz')"
-LSFG_URL="$(printf '%s\n' "$LSFG_LINKS" | grep -i linux | head -n1 || true)"
+LSFG_LINKS="$( { printf '%s' "$LSFG_HTML" | grep -oiE 'href="[^"]+\.tar\.xz"' | sed -E 's/^href="//I; s/"$//'; } || true )
+$( { printf '%s' "$LSFG_HTML" | grep -oiE 'https?://[^"'"'"'<>[:space:]]+\.tar\.xz'; } || true )"
+LSFG_URL="$(printf '%s\n' "$LSFG_LINKS" | grep -iE '(^|/)lsfg-vk-[0-9]+(\.[0-9]+)*\.tar\.xz$' | sort -Vu | tail -n1 || true)"
 if [[ -z "$LSFG_URL" ]]; then
     LSFG_URL="$(printf '%s\n' "$LSFG_LINKS" | head -n1 || true)"
 fi
