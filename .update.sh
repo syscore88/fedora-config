@@ -22,7 +22,7 @@ SCRIPT_LANG=$(detect_lang)
 if [ "$SCRIPT_LANG" = "pl" ]; then
     MSG_TITLE="                  KONSERWACJA SYSTEMU                  "
     MSG_ASK_PASS="Proszę podać hasło administratora (sudo):"
-    MSG_PHASE_UPDATE="[1/2] Aktualizacja i optymalizacja..."
+    MSG_PHASE_UPDATE="[1/2]         Optymalizacja..."
     MSG_PHASE_CLEAN_SYS="[2/2] Czyszczenie systemowe..."
     MSG_DONE="             KONSERWACJA SYSTEMU ZAKOŃCZONA!           "
     MSG_RESTART_WARN="UWAGA: Zalecany jest restart komputera"
@@ -31,7 +31,7 @@ if [ "$SCRIPT_LANG" = "pl" ]; then
 else
     MSG_TITLE="                   SYSTEM MAINTENANCE                   "
     MSG_ASK_PASS="Please enter the administrator (sudo) password:"
-    MSG_PHASE_UPDATE="[1/2] Updates and optimization..."
+    MSG_PHASE_UPDATE="[1/2]         Optimization..."
     MSG_PHASE_CLEAN_SYS="[2/2] System cleanup..."
     MSG_DONE="             SYSTEM MAINTENANCE COMPLETE!           "
     MSG_RESTART_WARN="WARNING: A system restart is recommended"
