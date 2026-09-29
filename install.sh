@@ -367,11 +367,11 @@ install_missing -y @development-tools @c-development gcc gcc-c++ make || true
 
 TO_REMOVE=(
     nano konqueror plasma-browser-integration plasma-vault krdp krfb cosmic-player
-    plasma-thunderbolt kontact kmail kontrast plasma-welcome showtime elisa pragha 
-    evolution evolution-common evolution-plugins evolution-ews rhythmbox dragon exaile mpv
+    plasma-thunderbolt kontact kmail kontrast plasma-welcome showtime elisa-player pragha 
+    evolution evolution-ews evolution-ews-core rhythmbox dragon exaile mpv
     kaddressbook kdepim-runtime akonadi-server akregator korganizer parole transmission-gtk
-    epiphany decibels gnome-calendar gnome-clocks gnome-user-docs showtime transmission-qt
-    gnome-contacts gnome-maps gnome-weather yelp kwalletmanager gnome-music totem juk
+    epiphany decibels gnome-calendar gnome-clocks gnome-user-docs transmission-qt
+    gnome-contacts gnome-maps gnome-weather yelp kwalletmanager5 gnome-music totem juk
 )
 wait_for_rpm_lock
 for pkg in "${TO_REMOVE[@]}"; do
