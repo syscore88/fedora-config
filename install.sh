@@ -417,7 +417,7 @@ PACKAGES=(
     dconf-editor hunspell-pl fastfetch unrar git mc exfatprogs ntfs-3g vim-enhanced
     os-prober android-tools fsarchiver inxi pv rsync python3-defusedxml ghostwriter
     python3-packaging python3-pip pipx 7zip zenity innoextract makeself
-    bleachbit timeshift vlc vlc-extras vulkan-headers vulkan-loader-devel
+    bleachbit timeshift vlc vlc-plugins-extra vulkan-headers vulkan-loader-devel
     audacity gimp gmic mixxx kdenlive soundconverter HandBrake-gui
     telegram-desktop qbittorrent qmmp pkgconf-pkg-config
     wine winetricks qt6-qtdeclarative qt6-qtbase libayatana-appindicator-gtk3
