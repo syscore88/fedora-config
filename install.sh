@@ -366,7 +366,7 @@ wait_for_rpm_lock
 install_missing -y @development-tools @c-development gcc gcc-c++ make || true
 
 TO_REMOVE=(
-    nano konqueror plasma-browser-integration plasma-vault krdp krfb cosmic-player
+    nano konqueror plasma-browser-integration plasma-vault krfb cosmic-player
     plasma-thunderbolt kontact kmail kontrast plasma-welcome showtime elisa-player pragha 
     evolution evolution-ews evolution-ews-core rhythmbox dragon exaile mpv
     kaddressbook kdepim-runtime akonadi-server akregator korganizer parole transmission-gtk
