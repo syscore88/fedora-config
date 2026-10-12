@@ -628,7 +628,6 @@ enable-net-poll=true
 disk-usage=false
 network-traffic=false
 
-[vms/2a91721fef6c4249997ea19b01801825]
 autoconnect=1
 vm-window-size=(1280, 842)
 DCONFEOF
