@@ -419,7 +419,7 @@ PACKAGES=(
     python3-packaging python3-pip pipx 7zip zenity innoextract makeself
     bleachbit timeshift vlc vlc-plugins-extra vulkan-headers vulkan-loader-devel
     audacity gimp gmic mixxx kdenlive soundconverter HandBrake-gui
-    telegram-desktop qbittorrent qmmp pkgconf-pkg-config
+    telegram-desktop qbittorrent qmmp pkgconf-pkg-config gnome-disk-utility
     wine winetricks qt6-qtdeclarative qt6-qtbase libayatana-appindicator-gtk3
     gamemode vulkan-tools gamescope mangohud cmake meson ninja-build python3-tqdm just
     gcc-c++ clang llvm mesa-libGL-devel qt6-qttools-devel
