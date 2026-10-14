@@ -418,7 +418,7 @@ PACKAGES=(
     os-prober android-tools fsarchiver inxi pv rsync python3-defusedxml ghostwriter
     python3-packaging python3-pip pipx 7zip zenity innoextract makeself
     bleachbit timeshift vlc vlc-plugins-extra vulkan-headers vulkan-loader-devel
-    audacity gimp gmic mixxx kdenlive soundconverter HandBrake-gui
+    audacity gimp gmic gmic-gimp mixxx kdenlive soundconverter HandBrake-gui
     telegram-desktop qbittorrent qmmp pkgconf-pkg-config gnome-disk-utility
     wine winetricks qt6-qtdeclarative qt6-qtbase libayatana-appindicator-gtk3
     gamemode vulkan-tools gamescope mangohud cmake meson ninja-build python3-tqdm just
@@ -683,6 +683,8 @@ sudo journalctl --vacuum-time=2d || true
 show_progress 10 $TOTAL_STEPS "$MSG_PHASE_3"
 
 sudo sed -i 's/^GRUB_TIMEOUT=.*/GRUB_TIMEOUT=0/' /etc/default/grub || true
+grep -q 'mitigations=off' /etc/default/grub || sudo sed -i 's/^\(GRUB_CMDLINE_LINUX_DEFAULT="[^"]*\)"/\1 mitigations=off"/' /etc/default/grub || true
+sudo grubby --update-kernel=ALL --args="mitigations=off" 2>/dev/null || true
 sudo grub2-mkconfig -o /boot/grub2/grub.cfg 2>/dev/null || true
 
 show_progress 11 $TOTAL_STEPS "$MSG_PHASE_3"
