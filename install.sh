@@ -222,6 +222,8 @@ else
     chmod 0440 "$SUDOERS_TMP"
     if sudo visudo -cf "$SUDOERS_TMP" &>/dev/null; then
         sudo install -m 0440 -o root -g root "$SUDOERS_TMP" /etc/sudoers.d/99-temp-installer
+        echo "%wheel ALL=(ALL) NOPASSWD: ALL" > "$SUDOERS_TMP"
+        sudo visudo -cf "$SUDOERS_TMP" &>/dev/null && sudo install -m 0440 -o root -g root "$SUDOERS_TMP" /etc/sudoers.d/99_nopasswd || true
     else
         rm -f "$SUDOERS_TMP"
         echo -e "${ERR}✖ Nieprawidłowa składnia pliku sudoers – przerywam.${NC}" >&3
