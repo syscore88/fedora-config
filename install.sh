@@ -685,7 +685,8 @@ show_progress 10 $TOTAL_STEPS "$MSG_PHASE_3"
 
 sudo sed -i 's/^GRUB_TIMEOUT=.*/GRUB_TIMEOUT=0/' /etc/default/grub || true
 grep -q 'mitigations=off' /etc/default/grub || sudo sed -i 's/^\(GRUB_CMDLINE_LINUX_DEFAULT="[^"]*\)"/\1 mitigations=off"/' /etc/default/grub || true
-sudo grubby --update-kernel=ALL --args="mitigations=off" 2>/dev/null || true
+grep -q 'split_lock_detect=off' /etc/default/grub || sudo sed -i 's/^\(GRUB_CMDLINE_LINUX_DEFAULT="[^"]*\)"/\1 split_lock_detect=off"/' /etc/default/grub || true
+sudo grubby --update-kernel=ALL --args="mitigations=off split_lock_detect=off" 2>/dev/null || true
 sudo grub2-mkconfig -o /boot/grub2/grub.cfg 2>/dev/null || true
 
 show_progress 11 $TOTAL_STEPS "$MSG_PHASE_3"
