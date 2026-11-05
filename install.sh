@@ -310,7 +310,7 @@ RPMFUSION_URLS=()
 rpm -q rpmfusion-free-release &>/dev/null || RPMFUSION_URLS+=("https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-${FEDORA_VER}.noarch.rpm")
 rpm -q rpmfusion-nonfree-release &>/dev/null || RPMFUSION_URLS+=("https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-${FEDORA_VER}.noarch.rpm")
 if (( ${#RPMFUSION_URLS[@]} > 0 )); then
-    sudo dnf5 install -y "${RPMFUSION_URLS[@]}" || true
+    sudo dnf5 install -y --no-gpgchecks "${RPMFUSION_URLS[@]}" || true
 fi
 
     wait_for_rpm_lock
@@ -558,7 +558,7 @@ else
     if wget -q --user-agent="Mozilla/5.0" "https://discord.com/api/download?platform=linux&format=rpm" -O "$dest"; then
         if file "$dest" | grep -q "RPM"; then
             wait_for_rpm_lock
-            sudo dnf5 install -y "$dest" || true
+            sudo dnf5 install -y --no-gpgchecks "$dest" || true
             rm -f "$dest"
         fi
     fi
@@ -577,7 +577,7 @@ shopt -s nullglob
 RPM_FILES=("$RPM_DIR"/*.rpm)
 if [[ ${#RPM_FILES[@]} -gt 0 ]]; then
     wait_for_rpm_lock
-    sudo dnf5 install -y "${RPM_FILES[@]}" || true
+    sudo dnf5 install -y --no-gpgchecks "${RPM_FILES[@]}" || true
 fi
 shopt -u nullglob
 rm -rf "$RPM_DIR"
