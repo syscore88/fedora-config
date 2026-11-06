@@ -642,16 +642,30 @@ for svc in libvirtd virtqemud; do
     fi
 done
 
-if ! sudo virsh net-info default &>/dev/null; then
-    sudo virsh net-define /usr/share/libvirt/networks/default.xml || true
+LIBVIRT_NET_XML="$(mktemp)"
+LIBVIRT_SUBNET="192.168.122"
+if sudo virsh net-info default &>/dev/null; then
+    sudo virsh net-dumpxml default > "$LIBVIRT_NET_XML"
+else
+    cp /usr/share/libvirt/networks/default.xml "$LIBVIRT_NET_XML"
 fi
+if ip -4 -o addr show | grep -v virbr0 | grep -q ' 192\.168\.122\.'; then
+    LIBVIRT_SUBNET="192.168.150"
+    sed -i 's/192\.168\.122\./192.168.150./g' "$LIBVIRT_NET_XML"
+    sudo virsh net-destroy default 2>/dev/null || true
+    sudo virsh net-undefine default 2>/dev/null || true
+fi
+if ! sudo virsh net-info default &>/dev/null; then
+    sudo virsh net-define "$LIBVIRT_NET_XML" || true
+fi
+rm -f "$LIBVIRT_NET_XML"
 sudo virsh net-start default 2>/dev/null || true
 sudo virsh net-autostart default || true
 
 if command -v firewall-cmd &>/dev/null; then
     sudo systemctl enable --now firewalld || true
     sudo firewall-cmd --permanent --zone=libvirt --add-interface=virbr0 2>/dev/null || true
-    sudo firewall-cmd --permanent --add-source=192.168.122.0/24 2>/dev/null || true
+    sudo firewall-cmd --permanent --add-source=${LIBVIRT_SUBNET}.0/24 2>/dev/null || true
     sudo firewall-cmd --reload 2>/dev/null || true
 fi
 
