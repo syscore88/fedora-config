@@ -52,10 +52,12 @@ cleanup_on_exit() {
     if [ "$exit_code" -ne 0 ]; then
         cp -f "$TMP_LOG" "$LOG_FILE" 2>/dev/null || true
         if [ "$SCRIPT_LANG" = "pl" ]; then
-            echo -e "${ERR}✘ Wystąpił błąd (kod: $exit_code). Szczegółowy log zapisano w: $LOG_FILE${NC}" >&3
+            echo -e "${ERR}[X] Wystąpił błąd (kod: $exit_code). Szczegółowy log zapisano w: $LOG_FILE${NC}" >&3
         else
-            echo -e "${ERR}✘ An error occurred (code: $exit_code). Detailed log saved to: $LOG_FILE${NC}" >&3
+            echo -e "${ERR}[X] An error occurred (code: $exit_code). Detailed log saved to: $LOG_FILE${NC}" >&3
         fi
+    else
+        rm -f "$LOG_FILE"
     fi
     rm -f "$TMP_LOG"
 }
@@ -82,7 +84,7 @@ show_progress() {
     local avail=$(( cols - overhead ))
     if (( avail < 5 )); then avail=5; fi
     if (( ${#msg} > avail )); then
-        msg="${msg:0:$((avail - 1))}…"
+        msg="${msg:0:$((avail - 3))}..."
     fi
 
     local filled=$(( percent * bar_width / 100 ))
@@ -94,6 +96,7 @@ show_progress() {
     if [ $empty -gt 0 ]; then printf -v bar_empty '%*s' "$empty" ''; bar_empty="${bar_empty// /-}"; fi
 
     printf "\r\033[K[\033[1;32m%s\033[0;90m%s\033[0m] %3d%% | \033[1;36m%s\033[0m" "$bar_filled" "$bar_empty" "$percent" "$msg" >&3
+    cp -f "$TMP_LOG" "$LOG_FILE" 2>/dev/null || true
 }
 
 CURRENT_USER=$(whoami)
@@ -134,9 +137,9 @@ EOF
         rm -f "$POLKIT_TMP"
         unset SUDO_PASSWORD
         if [ "$SCRIPT_LANG" = "pl" ]; then
-            echo -e "${ERR}✘ Nieprawidłowe hasło lub nie udało się nadać uprawnień tymczasowych – przerywam. Jeśli w /etc/sudoers działa opcja targetpw, podaj hasło roota.${NC}" >&3
+            echo -e "${ERR}[X] Nieprawidłowe hasło lub nie udało się nadać uprawnień tymczasowych – przerywam. Jeśli w /etc/sudoers działa opcja targetpw, podaj hasło roota.${NC}" >&3
         else
-            echo -e "${ERR}✘ Wrong password or failed to grant temporary privileges - aborting. If targetpw is set in /etc/sudoers, enter the root password.${NC}" >&3
+            echo -e "${ERR}[X] Wrong password or failed to grant temporary privileges - aborting. If targetpw is set in /etc/sudoers, enter the root password.${NC}" >&3
         fi
         exit 1
     fi
@@ -149,18 +152,18 @@ else
         unset SUDO_PASSWORD
         if ! sudo -n true 2>/dev/null; then
             if [ "$SCRIPT_LANG" = "pl" ]; then
-                echo -e "${WARN}⚠ Reguła NOPASSWD zainstalowana, ale sudo nadal prosi o hasło - sprawdź 'sudo -l' (możliwa inna reguła w /etc/sudoers nadpisująca wpis z sudoers.d).${NC}" >&3
+                echo -e "${WARN}[!] Reguła NOPASSWD zainstalowana, ale sudo nadal prosi o hasło - sprawdź 'sudo -l' (możliwa inna reguła w /etc/sudoers nadpisująca wpis z sudoers.d).${NC}" >&3
             else
-                echo -e "${WARN}⚠ NOPASSWD rule installed, but sudo still asks for a password - check 'sudo -l' (a rule in /etc/sudoers may be overriding the sudoers.d entry).${NC}" >&3
+                echo -e "${WARN}[!] NOPASSWD rule installed, but sudo still asks for a password - check 'sudo -l' (a rule in /etc/sudoers may be overriding the sudoers.d entry).${NC}" >&3
             fi
         fi
     else
         rm -f "$SUDOERS_TMP"
         unset SUDO_PASSWORD
         if [ "$SCRIPT_LANG" = "pl" ]; then
-            echo -e "${ERR}✘ Nieprawidłowe hasło lub składnia pliku sudoers – przerywam. Jeśli w /etc/sudoers działa opcja targetpw, podaj hasło roota.${NC}" >&3
+            echo -e "${ERR}[X] Nieprawidłowe hasło lub składnia pliku sudoers – przerywam. Jeśli w /etc/sudoers działa opcja targetpw, podaj hasło roota.${NC}" >&3
         else
-            echo -e "${ERR}✘ Wrong password or invalid sudoers syntax - aborting. If targetpw is set in /etc/sudoers, enter the root password.${NC}" >&3
+            echo -e "${ERR}[X] Wrong password or invalid sudoers syntax - aborting. If targetpw is set in /etc/sudoers, enter the root password.${NC}" >&3
         fi
         exit 1
     fi
@@ -168,9 +171,9 @@ fi
 
 if ! sudo -n true 2>/dev/null; then
     if [ "$SCRIPT_LANG" = "pl" ]; then
-        echo -e "${ERR}✘ Nie udało się uzyskać uprawnień bez hasła – przerywam.${NC}" >&3
+        echo -e "${ERR}[X] Nie udało się uzyskać uprawnień bez hasła – przerywam.${NC}" >&3
     else
-        echo -e "${ERR}✘ Could not obtain passwordless privileges - aborting.${NC}" >&3
+        echo -e "${ERR}[X] Could not obtain passwordless privileges - aborting.${NC}" >&3
     fi
     exit 1
 fi
