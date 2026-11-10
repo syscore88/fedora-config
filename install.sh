@@ -263,6 +263,20 @@ install_missing() {
     fi
 }
 
+pkg_installed() {
+    rpm -q "$1" &>/dev/null
+}
+
+install_dnf_pkgs() {
+    wait_for_rpm_lock
+    install_missing "$@" || true
+    local arg
+    for arg in "$@"; do
+        [[ "$arg" == -* || "$arg" == @* ]] && continue
+        pkg_installed "$arg" || FAILED_PACKAGES+=("$arg")
+    done
+}
+
 # ==========================================================
 #  ETAP 1/4: PRZYGOTOWYWANIE
 # ==========================================================
@@ -301,6 +315,42 @@ wait_for_rpm_lock
 for pkg in wget curl pciutils dconf; do
     install_missing -y "$pkg" || true
 done
+
+GPU_TYPE="unknown"
+HYBRID_GPU=false
+GPU_VENDORS=()
+GPU_UNKNOWN_PKGS=(
+    mesa-dri-drivers.x86_64 mesa-dri-drivers.i686 mesa-vulkan-drivers.x86_64 mesa-vulkan-drivers.i686
+    mesa-libGL.x86_64 mesa-libGL.i686 vulkan-headers vulkan-loader-devel vulkan-tools
+    mesa-libOpenCL.x86_64
+)
+if command -v lspci &>/dev/null; then
+    GPU_INFO=$(lspci | grep -i -E "vga|3d|display" || true)
+
+    echo "$GPU_INFO" | grep -qi "nvidia"      && GPU_VENDORS+=("nvidia")
+    echo "$GPU_INFO" | grep -qi -E "\b(amd|ati)\b|advanced micro devices|radeon" && GPU_VENDORS+=("amd")
+    echo "$GPU_INFO" | grep -qi "intel"       && GPU_VENDORS+=("intel")
+
+    TOTAL_KNOWN=${#GPU_VENDORS[@]}
+
+    if [ -z "$GPU_INFO" ] || [ "$TOTAL_KNOWN" -eq 0 ]; then
+        HYBRID_GPU=false
+        for pkg in "${GPU_UNKNOWN_PKGS[@]}"; do
+            pkg_installed "$pkg" || install_missing -y --skip-unavailable "$pkg" || true
+        done
+    elif [ "$TOTAL_KNOWN" -ge 2 ]; then
+        HYBRID_GPU=true
+        GPU_TYPE="$(IFS=+; echo "${GPU_VENDORS[*]}")"
+        log_info "Wykryto hybrydowy układ graficzny (HYBRID_GPU=$HYBRID_GPU): $GPU_TYPE" "Detected a hybrid GPU setup (HYBRID_GPU=$HYBRID_GPU): $GPU_TYPE"
+    else
+        HYBRID_GPU=false
+        GPU_TYPE="${GPU_VENDORS[0]}"
+    fi
+else
+    for pkg in "${GPU_UNKNOWN_PKGS[@]}"; do
+        pkg_installed "$pkg" || install_missing -y --skip-unavailable "$pkg" || true
+    done
+fi
 
 show_progress 2 $TOTAL_STEPS "$MSG_PHASE_1"
 
@@ -414,7 +464,7 @@ fi
 # ==========================================================
 show_progress 4 $TOTAL_STEPS "$MSG_PHASE_2"
 
-PACKAGES=(
+SYSTEM_PKGS=(
     google-chrome-stable brave-origin
     dconf-editor hunspell-pl fastfetch unrar git mc exfatprogs ntfs-3g vim-enhanced
     os-prober android-tools fsarchiver inxi pv rsync python3-defusedxml ghostwriter
@@ -427,18 +477,63 @@ PACKAGES=(
     bluez-tools zsh zsh-syntax-highlighting zsh-autosuggestions
 )
 
-wait_for_rpm_lock
-install_missing -y --refresh --skip-unavailable "${PACKAGES[@]}" || true
-for pkg in "${PACKAGES[@]}"; do
-    rpm -q "$pkg" &>/dev/null || FAILED_PACKAGES+=("$pkg")
+PKGS_32BIT=(
+    glibc.i686 libstdc++.i686 libgcc.i686 vulkan-loader.i686
+    alsa-lib.i686 alsa-plugins-pulseaudio.i686 pipewire-alsa.i686 pipewire-libs.i686
+    pulseaudio-libs.i686 openal-soft.i686 mangohud.i686 gamemode.i686
+    openssl-libs.i686 nss.i686 nspr.i686 libXcomposite.i686 libXcursor.i686
+    libXdamage.i686 libXext.i686 libXfixes.i686 libXi.i686 libXrandr.i686
+    libXrender.i686 libXtst.i686 libxkbcommon.i686
+)
+
+PKGS_CODECS=(
+    ffmpeg x264 gstreamer1-libav gstreamer1-plugins-bad-freeworld gstreamer1-plugins-good
+    gstreamer1-plugins-bad-free gstreamer1-plugins-ugly
+)
+
+for vendor in "${GPU_VENDORS[@]}"; do
+    case "$vendor" in
+        "nvidia") SYSTEM_PKGS+=(libva-nvidia-driver.x86_64 libva-nvidia-driver.i686 xorg-x11-drv-nvidia-cuda-libs.x86_64 xorg-x11-drv-nvidia-cuda-libs.i686) ;;
+        "amd")    SYSTEM_PKGS+=(mesa-dri-drivers.x86_64 mesa-dri-drivers.i686 mesa-vulkan-drivers.x86_64 mesa-vulkan-drivers.i686 mesa-libGL.x86_64 mesa-libGL.i686 vulkan-headers vulkan-loader-devel vulkan-tools mesa-va-drivers-freeworld.x86_64 mesa-va-drivers-freeworld.i686 mesa-libOpenCL.x86_64) ;;
+        "intel")  SYSTEM_PKGS+=(mesa-dri-drivers.x86_64 mesa-dri-drivers.i686 mesa-vulkan-drivers.x86_64 mesa-vulkan-drivers.i686 mesa-libGL.x86_64 mesa-libGL.i686 vulkan-headers vulkan-loader-devel vulkan-tools intel-media-driver intel-compute-runtime) ;;
+    esac
 done
 
-CODEC_PKGS=(ffmpeg x264 gstreamer1-libav gstreamer1-plugins-bad-freeworld gstreamer1-plugins-good gstreamer1-plugins-bad-free gstreamer1-plugins-ugly)
-wait_for_rpm_lock
-install_missing -y --allowerasing --skip-unavailable "${CODEC_PKGS[@]}" || true
-for pkg in "${CODEC_PKGS[@]}"; do
-    rpm -q "$pkg" &>/dev/null || FAILED_PACKAGES+=("$pkg")
-done
+if [ "${#GPU_VENDORS[@]}" -gt 0 ]; then
+    readarray -t SYSTEM_PKGS < <(printf '%s\n' "${SYSTEM_PKGS[@]}" | awk '!seen[$0]++')
+fi
+
+install_dnf_pkgs -y --refresh --skip-unavailable "${SYSTEM_PKGS[@]}"
+install_dnf_pkgs -y --refresh --skip-unavailable "${PKGS_32BIT[@]}"
+install_dnf_pkgs -y --allowerasing --skip-unavailable "${PKGS_CODECS[@]}"
+
+if [[ $GPU_TYPE == *"amd"* ]]; then
+    install_dnf_pkgs -y --allowerasing --skip-unavailable mesa-vulkan-drivers-freeworld.x86_64 mesa-vulkan-drivers-freeworld.i686
+fi
+
+DRACUT_CONF="/etc/dracut.conf.d/90-gpu.conf"
+FORCE_DRIVERS=""
+if [[ $GPU_TYPE == *"nvidia"* ]]; then
+    FORCE_DRIVERS+=" nvidia nvidia_modeset nvidia_uvm nvidia_drm"
+fi
+if [[ $GPU_TYPE == *"amd"* ]]; then
+    FORCE_DRIVERS+=" amdgpu"
+fi
+if [[ $GPU_TYPE == *"intel"* ]]; then
+    FORCE_DRIVERS+=" i915"
+fi
+
+if [ -n "$FORCE_DRIVERS" ]; then
+    echo "force_drivers+=\"${FORCE_DRIVERS} \"" | sudo tee "$DRACUT_CONF" > /dev/null
+else
+    sudo rm -f "$DRACUT_CONF"
+fi
+
+if [[ -f "$DRACUT_CONF" ]]; then
+    sudo dracut --force || true
+fi
+
+show_progress 5 $TOTAL_STEPS "$MSG_PHASE_2"
 
 wait_for_rpm_lock
 install_missing -y --skip-unavailable kernel-devel kernel-devel-matched || true
@@ -487,80 +582,6 @@ else
              "lsfg-vk: failed to download prebuilt package, skipping"
 fi
 rm -rf "$LSFG_TMP"
-
-show_progress 5 $TOTAL_STEPS "$MSG_PHASE_2"
-
-PACKAGES_32=(
-    glibc.i686 libstdc++.i686 libgcc.i686 vulkan-loader.i686
-    alsa-lib.i686 pipewire-alsa.i686 pipewire-libs.i686
-    pulseaudio-libs.i686 openal-soft.i686 mangohud.i686 gamemode.i686
-    openssl-libs.i686 nss.i686 nspr.i686 libXcomposite.i686 libXcursor.i686
-    libXdamage.i686 libXext.i686 libXfixes.i686 libXi.i686 libXrandr.i686
-    libXrender.i686 libXtst.i686 libxkbcommon.i686
-)
-
-GPU_INFO=$(lspci -nn | grep -iE "VGA|3D|Display" || true)
-DRACUT_CONF="/etc/dracut.conf.d/90-gpu.conf"
-
-GPU_HAS_NVIDIA=0
-GPU_HAS_AMD=0
-GPU_HAS_INTEL=0
-echo "$GPU_INFO" | grep -iq "NVIDIA" && GPU_HAS_NVIDIA=1
-echo "$GPU_INFO" | grep -iqE "AMD|Radeon" && GPU_HAS_AMD=1
-echo "$GPU_INFO" | grep -iq "Intel" && GPU_HAS_INTEL=1
-
-GPU_VENDOR_COUNT=$(( GPU_HAS_NVIDIA + GPU_HAS_AMD + GPU_HAS_INTEL ))
-FORCE_DRIVERS=""
-
-if (( GPU_VENDOR_COUNT >= 2 )); then
-    log_info "Wykryto hybrydowy układ graficzny (więcej niż jedno GPU)." "Detected a hybrid GPU setup (more than one GPU)."
-fi
-
-if (( GPU_HAS_NVIDIA )); then
-    PACKAGES_32+=(libva-nvidia-driver.x86_64 libva-nvidia-driver.i686)
-    PACKAGES_32+=(xorg-x11-drv-nvidia-cuda-libs.x86_64 xorg-x11-drv-nvidia-cuda-libs.i686)
-    FORCE_DRIVERS+=" nvidia nvidia_modeset nvidia_uvm nvidia_drm"
-fi
-if (( GPU_HAS_AMD )); then
-    PACKAGES_32+=(mesa-dri-drivers.x86_64 mesa-dri-drivers.i686 mesa-vulkan-drivers.x86_64 mesa-vulkan-drivers.i686 mesa-libGL.x86_64 mesa-libGL.i686 vulkan-headers vulkan-loader-devel vulkan-tools)
-    PACKAGES_32+=(mesa-va-drivers-freeworld.x86_64 mesa-va-drivers-freeworld.i686)
-    PACKAGES_32+=(mesa-libOpenCL.x86_64)
-    FORCE_DRIVERS+=" amdgpu"
-fi
-if (( GPU_HAS_INTEL )); then
-    PACKAGES_32+=(mesa-dri-drivers.x86_64 mesa-dri-drivers.i686 mesa-vulkan-drivers.x86_64 mesa-vulkan-drivers.i686 mesa-libGL.x86_64 mesa-libGL.i686 vulkan-headers vulkan-loader-devel vulkan-tools)
-    PACKAGES_32+=(intel-media-driver)
-    PACKAGES_32+=(intel-compute-runtime)
-    FORCE_DRIVERS+=" i915"
-fi
-
-if (( GPU_VENDOR_COUNT > 0 )); then
-    readarray -t PACKAGES_32 < <(printf '%s\n' "${PACKAGES_32[@]}" | awk '!seen[$0]++')
-    echo "force_drivers+=\"${FORCE_DRIVERS} \"" | sudo tee "$DRACUT_CONF" > /dev/null
-else
-    PACKAGES_32+=(mesa-dri-drivers.x86_64 mesa-dri-drivers.i686 mesa-vulkan-drivers.x86_64 mesa-vulkan-drivers.i686 mesa-libGL.x86_64 mesa-libGL.i686 vulkan-headers vulkan-loader-devel vulkan-tools)
-    PACKAGES_32+=(mesa-libOpenCL.x86_64)
-    sudo rm -f "$DRACUT_CONF"
-fi
-
-wait_for_rpm_lock
-install_missing -y --refresh --skip-unavailable "${PACKAGES_32[@]}" || true
-for pkg in "${PACKAGES_32[@]}"; do
-    rpm -q "$pkg" &>/dev/null || FAILED_PACKAGES+=("$pkg")
-done
-
-if (( GPU_HAS_AMD )); then
-    wait_for_rpm_lock
-    AMD_VK_PKGS=(mesa-vulkan-drivers-freeworld.x86_64 mesa-vulkan-drivers-freeworld.i686)
-    sudo dnf5 install -y --allowerasing --skip-unavailable "${AMD_VK_PKGS[@]}" || true
-    for pkg in "${AMD_VK_PKGS[@]}"; do
-        rpm -q "$pkg" &>/dev/null || FAILED_PACKAGES+=("$pkg")
-    done
-fi
-
-if [[ -f "$DRACUT_CONF" ]]; then
-    sudo dracut --force || true
-fi
 
 show_progress 6 $TOTAL_STEPS "$MSG_PHASE_2"
 
