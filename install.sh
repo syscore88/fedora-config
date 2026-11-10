@@ -549,7 +549,11 @@ done
 
 if (( GPU_HAS_AMD )); then
     wait_for_rpm_lock
-    sudo dnf5 install -y --allowerasing mesa-vulkan-drivers-freeworld.x86_64 mesa-vulkan-drivers-freeworld.i686 || true
+    AMD_VK_PKGS=(mesa-vulkan-drivers-freeworld.x86_64 mesa-vulkan-drivers-freeworld.i686)
+    sudo dnf5 install -y --allowerasing --skip-unavailable "${AMD_VK_PKGS[@]}" || true
+    for pkg in "${AMD_VK_PKGS[@]}"; do
+        rpm -q "$pkg" &>/dev/null || FAILED_PACKAGES+=("$pkg")
+    done
 fi
 
 if [[ -f "$DRACUT_CONF" ]]; then
