@@ -422,10 +422,8 @@ PACKAGES=(
     bleachbit timeshift vlc vlc-plugins-extra vulkan-headers vulkan-loader-devel
     audacity gimp gmic gmic-gimp mixxx kdenlive soundconverter HandBrake-gui
     telegram-desktop qbittorrent qmmp pkgconf-pkg-config gnome-disk-utility
-    wine winetricks qt6-qtdeclarative qt6-qtbase libayatana-appindicator-gtk3
-    gamemode vulkan-tools gamescope mangohud cmake meson ninja-build python3-tqdm just
-    gcc-c++ clang llvm mesa-libGL-devel qt6-qttools-devel
-    gstreamer1-plugins-good gstreamer1-plugins-bad-free gstreamer1-plugins-ugly
+    wine winetricks gamemode vulkan-tools gamescope mangohud 
+    cmake meson ninja-build python3-tqdm just gcc-c++ clang llvm mesa-libGL-devel 
     bluez-tools zsh zsh-syntax-highlighting zsh-autosuggestions
 )
 
@@ -435,7 +433,7 @@ for pkg in "${PACKAGES[@]}"; do
     rpm -q "$pkg" &>/dev/null || FAILED_PACKAGES+=("$pkg")
 done
 
-CODEC_PKGS=(ffmpeg x264 gstreamer1-libav gstreamer1-plugins-bad-freeworld)
+CODEC_PKGS=(ffmpeg x264 gstreamer1-libav gstreamer1-plugins-bad-freeworld gstreamer1-plugins-good gstreamer1-plugins-bad-free gstreamer1-plugins-ugly)
 wait_for_rpm_lock
 install_missing -y --allowerasing --skip-unavailable "${CODEC_PKGS[@]}" || true
 for pkg in "${CODEC_PKGS[@]}"; do
