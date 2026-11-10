@@ -435,6 +435,13 @@ for pkg in "${PACKAGES[@]}"; do
     rpm -q "$pkg" &>/dev/null || FAILED_PACKAGES+=("$pkg")
 done
 
+CODEC_PKGS=(ffmpeg x264 gstreamer1-libav gstreamer1-plugins-bad-freeworld)
+wait_for_rpm_lock
+install_missing -y --allowerasing --skip-unavailable "${CODEC_PKGS[@]}" || true
+for pkg in "${CODEC_PKGS[@]}"; do
+    rpm -q "$pkg" &>/dev/null || FAILED_PACKAGES+=("$pkg")
+done
+
 wait_for_rpm_lock
 install_missing -y --skip-unavailable kernel-devel kernel-devel-matched || true
 wait_for_rpm_lock
