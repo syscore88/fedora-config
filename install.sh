@@ -503,7 +503,6 @@ PACKAGES_32=(
 
 GPU_INFO=$(lspci -nn | grep -iE "VGA|3D|Display" || true)
 DRACUT_CONF="/etc/dracut.conf.d/90-gpu.conf"
-MESA_32_PKGS=(mesa-dri-drivers.i686 mesa-vulkan-drivers.i686 mesa-libGL.i686)
 
 GPU_HAS_NVIDIA=0
 GPU_HAS_AMD=0
@@ -520,15 +519,17 @@ if (( GPU_VENDOR_COUNT >= 2 )); then
 fi
 
 if (( GPU_HAS_NVIDIA )); then
-    PACKAGES_32+=(xorg-x11-drv-nvidia-libs.i686 xorg-x11-drv-nvidia-cuda-libs.i686)
+    PACKAGES_32+=(libva-nvidia-driver.x86_64 libva-nvidia-driver.i686)
     FORCE_DRIVERS+=" nvidia nvidia_modeset nvidia_uvm nvidia_drm"
 fi
 if (( GPU_HAS_AMD )); then
-    PACKAGES_32+=("${MESA_32_PKGS[@]}")
+    PACKAGES_32+=(mesa-dri-drivers.x86_64 mesa-dri-drivers.i686 mesa-vulkan-drivers.x86_64 mesa-vulkan-drivers.i686 mesa-libGL.x86_64 mesa-libGL.i686)
+    PACKAGES_32+=(mesa-va-drivers-freeworld.x86_64 mesa-va-drivers-freeworld.i686)
     FORCE_DRIVERS+=" amdgpu"
 fi
 if (( GPU_HAS_INTEL )); then
-    PACKAGES_32+=("${MESA_32_PKGS[@]}")
+    PACKAGES_32+=(mesa-dri-drivers.x86_64 mesa-dri-drivers.i686 mesa-vulkan-drivers.x86_64 mesa-vulkan-drivers.i686 mesa-libGL.x86_64 mesa-libGL.i686)
+    PACKAGES_32+=(intel-media-driver)
     FORCE_DRIVERS+=" i915"
 fi
 
@@ -536,7 +537,7 @@ if (( GPU_VENDOR_COUNT > 0 )); then
     readarray -t PACKAGES_32 < <(printf '%s\n' "${PACKAGES_32[@]}" | awk '!seen[$0]++')
     echo "force_drivers+=\"${FORCE_DRIVERS} \"" | sudo tee "$DRACUT_CONF" > /dev/null
 else
-    PACKAGES_32+=("${MESA_32_PKGS[@]}")
+    PACKAGES_32+=(mesa-dri-drivers.x86_64 mesa-dri-drivers.i686 mesa-vulkan-drivers.x86_64 mesa-vulkan-drivers.i686 mesa-libGL.x86_64 mesa-libGL.i686)
     sudo rm -f "$DRACUT_CONF"
 fi
 
@@ -545,6 +546,11 @@ install_missing -y --refresh --skip-unavailable "${PACKAGES_32[@]}" || true
 for pkg in "${PACKAGES_32[@]}"; do
     rpm -q "$pkg" &>/dev/null || FAILED_PACKAGES+=("$pkg")
 done
+
+if (( GPU_HAS_AMD )); then
+    wait_for_rpm_lock
+    sudo dnf5 install -y --allowerasing mesa-vulkan-drivers-freeworld.x86_64 mesa-vulkan-drivers-freeworld.i686 || true
+fi
 
 if [[ -f "$DRACUT_CONF" ]]; then
     sudo dracut --force || true
