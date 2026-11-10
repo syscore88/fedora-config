@@ -419,10 +419,10 @@ PACKAGES=(
     dconf-editor hunspell-pl fastfetch unrar git mc exfatprogs ntfs-3g vim-enhanced
     os-prober android-tools fsarchiver inxi pv rsync python3-defusedxml ghostwriter
     python3-packaging python3-pip pipx 7zip zenity innoextract makeself
-    bleachbit timeshift vlc vlc-plugins-extra vulkan-headers vulkan-loader-devel
+    bleachbit timeshift vlc vlc-plugins-extra
     audacity gimp gmic gmic-gimp mixxx kdenlive soundconverter HandBrake-gui
     telegram-desktop qbittorrent qmmp pkgconf-pkg-config gnome-disk-utility
-    wine winetricks gamemode vulkan-tools gamescope mangohud 
+    wine winetricks gamemode gamescope mangohud
     cmake meson ninja-build python3-tqdm just gcc-c++ clang llvm mesa-libGL-devel 
     bluez-tools zsh zsh-syntax-highlighting zsh-autosuggestions
 )
@@ -522,13 +522,13 @@ if (( GPU_HAS_NVIDIA )); then
     FORCE_DRIVERS+=" nvidia nvidia_modeset nvidia_uvm nvidia_drm"
 fi
 if (( GPU_HAS_AMD )); then
-    PACKAGES_32+=(mesa-dri-drivers.x86_64 mesa-dri-drivers.i686 mesa-vulkan-drivers.x86_64 mesa-vulkan-drivers.i686 mesa-libGL.x86_64 mesa-libGL.i686)
+    PACKAGES_32+=(mesa-dri-drivers.x86_64 mesa-dri-drivers.i686 mesa-vulkan-drivers.x86_64 mesa-vulkan-drivers.i686 mesa-libGL.x86_64 mesa-libGL.i686 vulkan-headers vulkan-loader-devel vulkan-tools)
     PACKAGES_32+=(mesa-va-drivers-freeworld.x86_64 mesa-va-drivers-freeworld.i686)
     PACKAGES_32+=(mesa-libOpenCL.x86_64)
     FORCE_DRIVERS+=" amdgpu"
 fi
 if (( GPU_HAS_INTEL )); then
-    PACKAGES_32+=(mesa-dri-drivers.x86_64 mesa-dri-drivers.i686 mesa-vulkan-drivers.x86_64 mesa-vulkan-drivers.i686 mesa-libGL.x86_64 mesa-libGL.i686)
+    PACKAGES_32+=(mesa-dri-drivers.x86_64 mesa-dri-drivers.i686 mesa-vulkan-drivers.x86_64 mesa-vulkan-drivers.i686 mesa-libGL.x86_64 mesa-libGL.i686 vulkan-headers vulkan-loader-devel vulkan-tools)
     PACKAGES_32+=(intel-media-driver)
     PACKAGES_32+=(intel-compute-runtime)
     FORCE_DRIVERS+=" i915"
@@ -538,7 +538,7 @@ if (( GPU_VENDOR_COUNT > 0 )); then
     readarray -t PACKAGES_32 < <(printf '%s\n' "${PACKAGES_32[@]}" | awk '!seen[$0]++')
     echo "force_drivers+=\"${FORCE_DRIVERS} \"" | sudo tee "$DRACUT_CONF" > /dev/null
 else
-    PACKAGES_32+=(mesa-dri-drivers.x86_64 mesa-dri-drivers.i686 mesa-vulkan-drivers.x86_64 mesa-vulkan-drivers.i686 mesa-libGL.x86_64 mesa-libGL.i686)
+    PACKAGES_32+=(mesa-dri-drivers.x86_64 mesa-dri-drivers.i686 mesa-vulkan-drivers.x86_64 mesa-vulkan-drivers.i686 mesa-libGL.x86_64 mesa-libGL.i686 vulkan-headers vulkan-loader-devel vulkan-tools)
     PACKAGES_32+=(mesa-libOpenCL.x86_64)
     sudo rm -f "$DRACUT_CONF"
 fi
