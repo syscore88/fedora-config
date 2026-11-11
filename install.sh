@@ -421,9 +421,10 @@ TO_REMOVE=(
     konqueror plasma-browser-integration plasma-vault cosmic-player pragha 
     plasma-thunderbolt kontact kmail kontrast plasma-welcome showtime elisa-player 
     rhythmbox dragon exaile mpv kwalletmanager5 gnome-music totem juk yelp 
+    evolution-bogofilter evolution-spamassassin evolution evolution-ews evolution-data-server
     kaddressbook kdepim-runtime akonadi-server akregator korganizer parole 
     epiphany decibels gnome-calendar gnome-clocks gnome-user-docs transmission-qt
-    gnome-contacts gnome-maps gnome-weather transmission-gtk "evolution*"
+    gnome-contacts gnome-maps gnome-weather transmission-gtk 
 )
 wait_for_rpm_lock
 for pkg in "${TO_REMOVE[@]}"; do
