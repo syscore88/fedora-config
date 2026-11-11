@@ -25,6 +25,7 @@ NC='\033[0m'
 
 TMP_LOG="$(mktemp /tmp/fedora-install-log.XXXXXX)"
 LOG_FILE="$HOME/install_error_$(date +%Y%m%d_%H%M%S).log"
+RPM_DIR="/tmp/rpms_$$"
 
 exec 3>&1
 exec >>"$TMP_LOG" 2>&1
@@ -45,7 +46,8 @@ cleanup_on_exit() {
             fi
         fi
     fi
-    rm -f "$TMP_LOG"
+    rm -f "$TMP_LOG" /tmp/discord.rpm
+    rm -rf "$RPM_DIR"
     local do_reboot=0
     [ "$exit_code" -eq 0 ] && [ "${DO_REBOOT:-0}" = "1" ] && do_reboot=1
     if [ "${SUDO_READY:-0}" = "1" ]; then
@@ -176,14 +178,18 @@ fi
 
 TOTAL_STEPS=12
 FAILED_PACKAGES=()
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &> /dev/null && pwd)"
-CURRENT_USER=$(whoami)
-RPM_DIR="/tmp/rpms_$$"
 
 if [[ "$EUID" -eq 0 ]]; then
-    echo -e "${ERR}[X] Nie uruchamiaj skryptu jako root. Użyj zwykłego użytkownika z sudo.${NC}" >&3
+    if [[ "$SCRIPT_LANG" == "pl" ]]; then
+        echo -e "${ERR}[X] Nie uruchamiaj skryptu jako root. Użyj zwykłego użytkownika z sudo.${NC}" >&3
+    else
+        echo -e "${ERR}[X] Do not run this script as root. Run as a normal user with sudo.${NC}" >&3
+    fi
     exit 1
 fi
+
+CURRENT_USER=$(whoami)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &> /dev/null && pwd)"
 
 printf '\033[?7h\n' >&3
 
@@ -226,7 +232,11 @@ else
         sudo visudo -cf "$SUDOERS_TMP" &>/dev/null && sudo install -m 0440 -o root -g root "$SUDOERS_TMP" /etc/sudoers.d/99_nopasswd || true
     else
         rm -f "$SUDOERS_TMP"
-        echo -e "${ERR}[X] Nieprawidłowa składnia pliku sudoers – przerywam.${NC}" >&3
+        if [[ "$SCRIPT_LANG" == "pl" ]]; then
+            echo -e "${ERR}[X] Nieprawidłowa składnia pliku sudoers – przerywam.${NC}" >&3
+        else
+            echo -e "${ERR}[X] Invalid sudoers rule syntax - aborting.${NC}" >&3
+        fi
         exit 1
     fi
     rm -f "$SUDOERS_TMP"
@@ -235,33 +245,12 @@ fi
 
 printf '\033[?7l' >&3
 
-wait_for_rpm_lock() {
-    local i=0
-    while pgrep -x dnf >/dev/null || pgrep -x dnf5 >/dev/null || pgrep -x packagekitd >/dev/null || pgrep -x rpm >/dev/null; do
-        if (( i++ >= 24 )); then
-            sudo systemctl stop packagekit.service dnf-makecache.service dnf5-makecache.service 2>/dev/null || true
-            sudo killall -9 dnf dnf5 rpm packagekitd 2>/dev/null || true
-            sudo rm -f /var/lib/rpm/.rpm.lock /usr/lib/sysimage/rpm/.rpm.lock /var/cache/libdnf5/*.lock 2>/dev/null || true
-            break
-        fi
-        sleep 5
-    done
-}
+# ==========================================================
+#  ETAP 1/4: PRZYGOTOWYWANIE
+# ==========================================================
+show_progress 0 $TOTAL_STEPS "$MSG_PHASE_1"
 
-install_missing() {
-    local -a opts=() missing=()
-    local arg
-    for arg in "$@"; do
-        if [[ "$arg" == -* ]]; then
-            opts+=("$arg")
-        elif [[ "$arg" == @* ]] || ! rpm -q "$arg" &>/dev/null; then
-            missing+=("$arg")
-        fi
-    done
-    if (( ${#missing[@]} > 0 )); then
-        sudo dnf5 install "${opts[@]}" "${missing[@]}"
-    fi
-}
+disable_packagekit
 
 pkg_installed() {
     rpm -q "$1" &>/dev/null
@@ -269,40 +258,25 @@ pkg_installed() {
 
 install_dnf_pkgs() {
     wait_for_rpm_lock
-    install_missing "$@" || true
-    local arg
+    local -a opts=() valid_pkgs=()
+    local arg pkg
     for arg in "$@"; do
-        [[ "$arg" == -* || "$arg" == @* ]] && continue
-        pkg_installed "$arg" || FAILED_PACKAGES+=("$arg")
+        if [[ "$arg" == -* ]]; then
+            opts+=("$arg")
+        elif [[ "$arg" == @* ]]; then
+            valid_pkgs+=("$arg")
+        elif pkg_installed "$arg"; then
+            continue
+        elif dnf5 repoquery -q "$arg" 2>/dev/null | grep -q .; then
+            valid_pkgs+=("$arg")
+        else
+            FAILED_PACKAGES+=("$arg")
+        fi
+    done
+    for pkg in "${valid_pkgs[@]}"; do
+        sudo dnf5 install -y "${opts[@]}" "$pkg" || FAILED_PACKAGES+=("$pkg")
     done
 }
-
-# ==========================================================
-#  ETAP 1/4: PRZYGOTOWYWANIE
-# ==========================================================
-show_progress 0 $TOTAL_STEPS "$MSG_PHASE_1"
-
-if [ -f "$SCRIPT_DIR/.update.sh" ]; then
-    cp -af "$SCRIPT_DIR/.update.sh" ~/.update.sh
-    chmod +x ~/.update.sh
-fi
-
-if [ -d "$SCRIPT_DIR/.local" ]; then
-    mkdir -p ~/.local
-    cp -afT "$SCRIPT_DIR/.local" ~/.local
-fi
-
-if [ -d "$SCRIPT_DIR/.config" ]; then
-    mkdir -p ~/.config
-    cp -afT "$SCRIPT_DIR/.config" ~/.config
-fi
-
-show_progress 1 $TOTAL_STEPS "$MSG_PHASE_1"
-
-sudo systemctl stop packagekit.service packagekit-offline-update.service dnf-makecache.timer dnf-makecache.service dnf5-makecache.timer dnf5-makecache.service 2>/dev/null || true
-sudo systemctl mask packagekit.service packagekit-offline-update.service dnf-makecache.timer dnf-makecache.service dnf5-makecache.timer dnf5-makecache.service 2>/dev/null || true
-sudo killall -9 packagekitd dnf dnf5 rpm 2>/dev/null || true
-disable_packagekit
 
 for DNF_CONF in /etc/dnf/dnf.conf /etc/dnf/dnf5.conf; do
     if [[ -f "$DNF_CONF" ]]; then
@@ -311,10 +285,7 @@ for DNF_CONF in /etc/dnf/dnf.conf /etc/dnf/dnf5.conf; do
     fi
 done
 
-wait_for_rpm_lock
-for pkg in wget curl pciutils dconf; do
-    install_missing -y "$pkg" || true
-done
+install_dnf_pkgs wget curl pciutils dconf dnf-plugins-core gnupg2
 
 GPU_TYPE="unknown"
 HYBRID_GPU=false
@@ -335,9 +306,7 @@ if command -v lspci &>/dev/null; then
 
     if [ -z "$GPU_INFO" ] || [ "$TOTAL_KNOWN" -eq 0 ]; then
         HYBRID_GPU=false
-        for pkg in "${GPU_UNKNOWN_PKGS[@]}"; do
-            pkg_installed "$pkg" || install_missing -y --skip-unavailable "$pkg" || true
-        done
+        install_dnf_pkgs --skip-unavailable "${GPU_UNKNOWN_PKGS[@]}"
     elif [ "$TOTAL_KNOWN" -ge 2 ]; then
         HYBRID_GPU=true
         GPU_TYPE="$(IFS=+; echo "${GPU_VENDORS[*]}")"
@@ -347,84 +316,34 @@ if command -v lspci &>/dev/null; then
         GPU_TYPE="${GPU_VENDORS[0]}"
     fi
 else
-    for pkg in "${GPU_UNKNOWN_PKGS[@]}"; do
-        pkg_installed "$pkg" || install_missing -y --skip-unavailable "$pkg" || true
-    done
+    install_dnf_pkgs --skip-unavailable "${GPU_UNKNOWN_PKGS[@]}"
 fi
 
-show_progress 2 $TOTAL_STEPS "$MSG_PHASE_1"
-
-FEDORA_VER=$(rpm -E %fedora)
-wait_for_rpm_lock
-RPMFUSION_URLS=()
-rpm -q rpmfusion-free-release &>/dev/null || RPMFUSION_URLS+=("https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-${FEDORA_VER}.noarch.rpm")
-rpm -q rpmfusion-nonfree-release &>/dev/null || RPMFUSION_URLS+=("https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-${FEDORA_VER}.noarch.rpm")
-if (( ${#RPMFUSION_URLS[@]} > 0 )); then
-    sudo dnf5 install -y --no-gpgchecks "${RPMFUSION_URLS[@]}" || true
+if [ -f "$SCRIPT_DIR/.update.sh" ]; then
+    cp -af "$SCRIPT_DIR/.update.sh" ~/.update.sh
+    chmod +x ~/.update.sh
 fi
 
-    wait_for_rpm_lock
-sudo dnf5 makecache --refresh || true
-
-OLD_GOOGLE_KEYS=$(rpm -qa 'gpg-pubkey*' --qf '%{NAME}-%{VERSION}-%{RELEASE} %{PACKAGER}\n' 2>/dev/null \
-    | grep -i 'linux-packages-keymaster@google.com\|Google, Inc' \
-    | cut -d' ' -f1 || true)
-if [[ -n "$OLD_GOOGLE_KEYS" ]]; then
-    sudo rpm -e $OLD_GOOGLE_KEYS 2>/dev/null || true
-fi
-sudo rpm --import https://dl.google.com/linux/linux_signing_key.pub || true
-
-sudo tee /etc/yum.repos.d/google-chrome.repo > /dev/null <<'EOF'
-[google-chrome]
-name=Google Chrome
-baseurl=http://dl.google.com/linux/chrome/rpm/stable/x86_64
-enabled=1
-gpgcheck=1
-gpgkey=https://dl.google.com/linux/linux_signing_key.pub
-EOF
-
-wait_for_rpm_lock
-for pkg in dnf-plugins-core gnupg2; do
-    install_missing -y "$pkg" || true
-done
-
-BRAVE_KEY_ID="0686B78420038257"
-if ! sudo rpm --import https://brave-browser-rpm-release.s3.brave.com/brave-core.asc 2>/dev/null; then
-    BRAVE_GNUPGHOME="$(mktemp -d)"
-    if ! gpg --homedir "$BRAVE_GNUPGHOME" --keyserver hkps://keyserver.ubuntu.com --recv-keys "$BRAVE_KEY_ID" 2>/dev/null; then
-        gpg --homedir "$BRAVE_GNUPGHOME" --keyserver hkps://keys.openpgp.org --recv-keys "$BRAVE_KEY_ID" || true
-    fi
-    gpg --homedir "$BRAVE_GNUPGHOME" --armor --export "$BRAVE_KEY_ID" > "$BRAVE_GNUPGHOME/brave-core.asc" 2>/dev/null || true
-    sudo rpm --import "$BRAVE_GNUPGHOME/brave-core.asc" 2>/dev/null || true
-    rm -rf "$BRAVE_GNUPGHOME"
+if [ -d "$SCRIPT_DIR/.local" ]; then
+    mkdir -p ~/.local
+    cp -afT "$SCRIPT_DIR/.local" ~/.local
 fi
 
-wait_for_rpm_lock
-sudo dnf5 config-manager addrepo --from-repofile=https://brave-browser-rpm-release.s3.brave.com/brave-browser.repo || true
-
-sudo mkdir -p /etc/NetworkManager/conf.d
-echo -e "[main]\ndns=default\nrc-manager=symlink" | sudo tee /etc/NetworkManager/conf.d/dns.conf > /dev/null
-echo -e "[global-dns]\n\n[global-dns-domain-*]\nservers=1.1.1.2,1.0.0.2,2606:4700:4700::1112,2606:4700:4700::1002" | sudo tee /etc/NetworkManager/conf.d/global-dns.conf > /dev/null
-
-ACTIVE_CONN=$(nmcli -t -f NAME,DEVICE connection show --active 2>/dev/null | grep -v "^lo" | head -n 1 | cut -d: -f1 || true)
-if [[ -n "$ACTIVE_CONN" ]]; then
-    sudo nmcli connection modify "$ACTIVE_CONN" ipv4.dns "1.1.1.2,1.0.0.2" ipv6.dns "2606:4700:4700::1112,2606:4700:4700::1002"
-    sudo nmcli connection up "$ACTIVE_CONN" || true
+if [ -d "$SCRIPT_DIR/.config" ]; then
+    mkdir -p ~/.config
+    cp -afT "$SCRIPT_DIR/.config" ~/.config
 fi
 
-show_progress 3 $TOTAL_STEPS "$MSG_PHASE_1"
-
-wait_for_rpm_lock
-install_missing -y @development-tools @c-development gcc gcc-c++ make || true
+show_progress 1 $TOTAL_STEPS "$MSG_PHASE_1"
 
 TO_REMOVE=(
-    konqueror plasma-browser-integration plasma-vault cosmic-player pragha 
-    plasma-thunderbolt kontact kmail kontrast plasma-welcome showtime elisa-player 
-    rhythmbox dragon exaile mpv kwalletmanager5 gnome-music totem juk yelp 
+    konqueror plasma-browser-integration plasma-vault cosmic-player pragha
+    plasma-thunderbolt kontact kmail kontrast plasma-welcome showtime elisa-player
+    rhythmbox dragon exaile mpv kwalletmanager5 gnome-music totem juk yelp
     evolution-bogofilter evolution-spamassassin evolution evolution-ews evolution-data-server
-    kaddressbook kdepim-runtime akonadi-server akregator korganizer parole 
+    kaddressbook kdepim-runtime akonadi-server akregator korganizer parole
     epiphany decibels gnome-calendar gnome-clocks gnome-user-docs transmission-qt
-    gnome-contacts gnome-maps gnome-weather transmission-gtk 
+    gnome-contacts gnome-maps gnome-weather transmission-gtk
 )
 wait_for_rpm_lock
 for pkg in "${TO_REMOVE[@]}"; do
@@ -432,14 +351,7 @@ for pkg in "${TO_REMOVE[@]}"; do
 done
 sudo dnf5 autoremove -y || true
 
-rm -rf ~/.local/share/akonadi ~/.local/share/kmail2 ~/.local/share/local-mail ~/.local/share/contacts ~/.local/share/korganizer ~/.local/share/akregator ~/.local/share/kontact ~/.local/share/konqueror
-rm -rf ~/.config/akonadi* ~/.config/kmail* ~/.config/kontact* ~/.config/korganizer* ~/.config/kaddressbook* ~/.config/akregator* ~/.config/emailidentities ~/.config/mailtransports
-rm -rf ~/.cache/akonadi* ~/.cache/kmail* ~/.cache/kontact* ~/.cache/korganizer* ~/.cache/kaddressbook* ~/.cache/akregator* ~/.cache/konqueror*
-rm -rf ~/.local/share/{epiphany,decibels,gnome-user-docs,gnome-contacts,gnome-maps,gnome-weather,evolution,gnome-music,parole,rhythmbox,showtime,epiphany,decibels,dragonplayer,elisa,cosmic-player,transmission,pragha,totem,exaile,mpv,juk}
-rm -rf ~/.config/{epiphany,decibels,gnome-user-docs,gnome-contacts,gnome-maps,gnome-weather,evolution,gnome-music,parole,rhythmbox,showtime,epiphany,decibels,dragonplayer,elisa,cosmic-player,transmission,pragha,totem,exaile,mpv,juk}
-rm -rf ~/.cache/{epiphany,decibels,gnome-user-docs,gnome-contacts,gnome-maps,gnome-weather,evolution,gnome-music,parole,rhythmbox,showtime,epiphany,decibels,dragonplayer,elisa,cosmic-player,transmission,pragha,totem,exaile,mpv,juk}
-
-if rpm -q plasma-desktop &>/dev/null || rpm -q plasma-workspace &>/dev/null; then
+if pkg_installed plasma-desktop || pkg_installed plasma-workspace; then
     mkdir -p ~/.config
     cat > ~/.config/kwalletrc << 'EOF'
 [Wallet]
@@ -459,11 +371,81 @@ Use One Wallet=true
 apiEnabled=false
 EOF
 fi
+rm -rf ~/.local/share/akonadi ~/.local/share/kmail2 ~/.local/share/local-mail ~/.local/share/contacts ~/.local/share/korganizer ~/.local/share/akregator ~/.local/share/kontact ~/.local/share/konqueror
+rm -rf ~/.config/akonadi* ~/.config/kmail* ~/.config/kontact* ~/.config/korganizer* ~/.config/kaddressbook* ~/.config/akregator* ~/.config/emailidentities ~/.config/mailtransports
+rm -rf ~/.cache/akonadi* ~/.cache/kmail* ~/.cache/kontact* ~/.cache/korganizer* ~/.cache/kaddressbook* ~/.cache/akregator* ~/.cache/konqueror*
+rm -rf ~/.local/share/{epiphany,decibels,gnome-user-docs,gnome-contacts,gnome-maps,gnome-weather,evolution,gnome-calendar,gnome-clocks,gnome-music,parole,rhythmbox,showtime,dragonplayer,elisa,cosmic-player,transmission,pragha,totem,exaile,mpv,juk}
+rm -rf ~/.config/{epiphany,decibels,gnome-user-docs,gnome-contacts,gnome-maps,gnome-weather,evolution,gnome-calendar,gnome-clocks,gnome-music,parole,rhythmbox,showtime,dragonplayer,elisa,cosmic-player,transmission,pragha,totem,exaile,mpv,juk}
+rm -rf ~/.cache/{epiphany,decibels,gnome-user-docs,gnome-contacts,gnome-maps,gnome-weather,evolution,gnome-calendar,gnome-clocks,gnome-music,parole,rhythmbox,showtime,dragonplayer,elisa,cosmic-player,transmission,pragha,totem,exaile,mpv,juk}
+command -v dconf &>/dev/null && dconf reset -f /org/gnome/evolution/ || true
+
+show_progress 2 $TOTAL_STEPS "$MSG_PHASE_1"
+
+FEDORA_VER=$(rpm -E %fedora)
+wait_for_rpm_lock
+RPMFUSION_URLS=()
+pkg_installed rpmfusion-free-release || RPMFUSION_URLS+=("https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-${FEDORA_VER}.noarch.rpm")
+pkg_installed rpmfusion-nonfree-release || RPMFUSION_URLS+=("https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-${FEDORA_VER}.noarch.rpm")
+if (( ${#RPMFUSION_URLS[@]} > 0 )); then
+    sudo dnf5 install -y --no-gpgchecks "${RPMFUSION_URLS[@]}" || true
+fi
+
+OLD_GOOGLE_KEYS=$(rpm -qa 'gpg-pubkey*' --qf '%{NAME}-%{VERSION}-%{RELEASE} %{PACKAGER}\n' 2>/dev/null \
+    | grep -i 'linux-packages-keymaster@google.com\|Google, Inc' \
+    | cut -d' ' -f1 || true)
+if [[ -n "$OLD_GOOGLE_KEYS" ]]; then
+    sudo rpm -e $OLD_GOOGLE_KEYS 2>/dev/null || true
+fi
+sudo rpm --import https://dl.google.com/linux/linux_signing_key.pub || true
+
+sudo tee /etc/yum.repos.d/google-chrome.repo > /dev/null <<'EOF'
+[google-chrome]
+name=Google Chrome
+baseurl=http://dl.google.com/linux/chrome/rpm/stable/x86_64
+enabled=1
+gpgcheck=1
+gpgkey=https://dl.google.com/linux/linux_signing_key.pub
+EOF
+
+BRAVE_KEY_ID="0686B78420038257"
+if ! sudo rpm --import https://brave-browser-rpm-release.s3.brave.com/brave-core.asc 2>/dev/null; then
+    BRAVE_GNUPGHOME="$(mktemp -d)"
+    if ! gpg --homedir "$BRAVE_GNUPGHOME" --keyserver hkps://keyserver.ubuntu.com --recv-keys "$BRAVE_KEY_ID" 2>/dev/null; then
+        gpg --homedir "$BRAVE_GNUPGHOME" --keyserver hkps://keys.openpgp.org --recv-keys "$BRAVE_KEY_ID" || true
+    fi
+    gpg --homedir "$BRAVE_GNUPGHOME" --armor --export "$BRAVE_KEY_ID" > "$BRAVE_GNUPGHOME/brave-core.asc" 2>/dev/null || true
+    sudo rpm --import "$BRAVE_GNUPGHOME/brave-core.asc" 2>/dev/null || true
+    rm -rf "$BRAVE_GNUPGHOME"
+fi
+
+wait_for_rpm_lock
+sudo dnf5 config-manager addrepo --overwrite --from-repofile=https://brave-browser-rpm-release.s3.brave.com/brave-browser.repo 2>/dev/null || \
+    sudo dnf5 config-manager addrepo --from-repofile=https://brave-browser-rpm-release.s3.brave.com/brave-browser.repo 2>/dev/null || true
+sudo dnf5 -y copr enable rok/cdemu || true
+sudo dnf5 -y copr enable faugus/faugus-launcher || true
+
+sudo mkdir -p /etc/NetworkManager/conf.d
+echo -e "[main]\ndns=default\nrc-manager=symlink" | sudo tee /etc/NetworkManager/conf.d/dns.conf > /dev/null
+echo -e "[global-dns]\n\n[global-dns-domain-*]\nservers=1.1.1.2,1.0.0.2,2606:4700:4700::1112,2606:4700:4700::1002" | sudo tee /etc/NetworkManager/conf.d/global-dns.conf > /dev/null
+
+ACTIVE_CONN=$(nmcli -t -f NAME,DEVICE connection show --active 2>/dev/null | grep -v "^lo" | head -n 1 | cut -d: -f1 || true)
+if [[ -n "$ACTIVE_CONN" ]]; then
+    sudo nmcli connection modify "$ACTIVE_CONN" ipv4.dns "1.1.1.2,1.0.0.2" ipv6.dns "2606:4700:4700::1112,2606:4700:4700::1002"
+    sudo nmcli connection up "$ACTIVE_CONN" || true
+fi
+
+show_progress 3 $TOTAL_STEPS "$MSG_PHASE_1"
 
 # ==========================================================
 #  ETAP 2/4: INSTALACJA
 # ==========================================================
 show_progress 4 $TOTAL_STEPS "$MSG_PHASE_2"
+
+wait_for_rpm_lock
+sudo dnf5 makecache --refresh || true
+sudo dnf5 upgrade -y --refresh || true
+
+show_progress 5 $TOTAL_STEPS "$MSG_PHASE_2"
 
 SYSTEM_PKGS=(
     google-chrome-stable brave-origin
@@ -474,8 +456,12 @@ SYSTEM_PKGS=(
     audacity gimp gmic gmic-gimp mixxx kdenlive soundconverter HandBrake-gui
     telegram-desktop qbittorrent qmmp pkgconf-pkg-config gnome-disk-utility
     wine winetricks gamemode gamescope mangohud
-    cmake meson ninja-build python3-tqdm just gcc-c++ clang llvm mesa-libGL-devel 
+    cmake meson ninja-build python3-tqdm just gcc-c++ clang llvm mesa-libGL-devel
     bluez-tools zsh zsh-syntax-highlighting zsh-autosuggestions
+    @development-tools @c-development gcc make flatpak
+    cdemu-daemon cdemu-client gcdemu
+    virt-manager qemu-kvm qemu-img libvirt libvirt-daemon-kvm
+    qt6-qtbase qt6-qtbase-gui qt6-qtdeclarative
 )
 
 PKGS_32BIT=(
@@ -504,47 +490,15 @@ if [ "${#GPU_VENDORS[@]}" -gt 0 ]; then
     readarray -t SYSTEM_PKGS < <(printf '%s\n' "${SYSTEM_PKGS[@]}" | awk '!seen[$0]++')
 fi
 
-install_dnf_pkgs -y --refresh --skip-unavailable "${SYSTEM_PKGS[@]}"
-install_dnf_pkgs -y --refresh --skip-unavailable "${PKGS_32BIT[@]}"
-install_dnf_pkgs -y --allowerasing --skip-unavailable "${PKGS_CODECS[@]}"
+install_dnf_pkgs --skip-unavailable "${SYSTEM_PKGS[@]}"
+install_dnf_pkgs --skip-unavailable "${PKGS_32BIT[@]}"
+install_dnf_pkgs --allowerasing --skip-unavailable "${PKGS_CODECS[@]}"
 
 if [[ $GPU_TYPE == *"amd"* ]]; then
-    install_dnf_pkgs -y --allowerasing --skip-unavailable mesa-vulkan-drivers-freeworld.x86_64 mesa-vulkan-drivers-freeworld.i686
+    install_dnf_pkgs --allowerasing --skip-unavailable mesa-vulkan-drivers-freeworld.x86_64 mesa-vulkan-drivers-freeworld.i686
 fi
 
-DRACUT_CONF="/etc/dracut.conf.d/90-gpu.conf"
-FORCE_DRIVERS=""
-if [[ $GPU_TYPE == *"nvidia"* ]]; then
-    FORCE_DRIVERS+=" nvidia nvidia_modeset nvidia_uvm nvidia_drm"
-fi
-if [[ $GPU_TYPE == *"amd"* ]]; then
-    FORCE_DRIVERS+=" amdgpu"
-fi
-if [[ $GPU_TYPE == *"intel"* ]]; then
-    FORCE_DRIVERS+=" i915"
-fi
-
-if [ -n "$FORCE_DRIVERS" ]; then
-    echo "force_drivers+=\"${FORCE_DRIVERS} \"" | sudo tee "$DRACUT_CONF" > /dev/null
-else
-    sudo rm -f "$DRACUT_CONF"
-fi
-
-if [[ -f "$DRACUT_CONF" ]]; then
-    sudo dracut --force || true
-fi
-
-show_progress 5 $TOTAL_STEPS "$MSG_PHASE_2"
-
-wait_for_rpm_lock
-install_missing -y --skip-unavailable kernel-devel kernel-devel-matched || true
-wait_for_rpm_lock
-sudo dnf5 -y copr enable rok/cdemu || true
-wait_for_rpm_lock
-install_missing -y --skip-unavailable cdemu-daemon cdemu-client gcdemu || true
-for pkg in cdemu-daemon cdemu-client; do
-    rpm -q "$pkg" &>/dev/null || FAILED_PACKAGES+=("$pkg")
-done
+sudo depmod -a &>/dev/null || true
 
 sudo systemctl disable --now cdemu-daemon 2>/dev/null || true
 sudo systemctl mask cdemu-daemon 2>/dev/null || true
@@ -560,6 +514,58 @@ for f in /etc/xdg/autostart/gcdemu.desktop /etc/xdg/autostart/cdemu.desktop /usr
     fi
 done
 pkill -f gcdemu 2>/dev/null || true
+
+show_progress 6 $TOTAL_STEPS "$MSG_PHASE_2"
+
+if command -v flatpak &>/dev/null; then
+    sudo flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo || true
+    sudo flatpak update --appstream || true
+    flatpak info com.github.tchx84.Flatseal &>/dev/null || sudo flatpak install -y flathub com.github.tchx84.Flatseal || true
+    flatpak info it.mijorus.gearlever &>/dev/null || sudo flatpak install -y flathub it.mijorus.gearlever || true
+fi
+
+show_progress 7 $TOTAL_STEPS "$MSG_PHASE_2"
+
+install_dnf_pkgs faugus-launcher
+
+mkdir -p "$RPM_DIR"
+download_rpm() { wget -q --timeout=30 -O "$3" "$2" || rm -f "$3"; }
+
+wait_for_rpm_lock
+if pkg_installed discord; then
+    :
+elif dnf5 repoquery -q discord 2>/dev/null | grep -q .; then
+    install_dnf_pkgs discord
+else
+    dest="$RPM_DIR/discord.rpm"
+    if wget -q --user-agent="Mozilla/5.0" "https://discord.com/api/download?platform=linux&format=rpm" -O "$dest"; then
+        if ! file "$dest" | grep -q "RPM"; then
+            rm -f "$dest"
+        fi
+    fi
+fi
+
+OPENCODE_URL=""
+pkg_installed opencode-desktop || OPENCODE_URL=$(curl -sfL https://api.github.com/repos/anomalyco/opencode/releases/latest | grep "browser_download_url.*opencode-desktop-linux-x86_64\.rpm" | cut -d '"' -f 4 || true)
+[[ -n "$OPENCODE_URL" ]] && download_rpm "opencode-desktop" "$OPENCODE_URL" "$RPM_DIR/opencode-desktop.rpm"
+
+shopt -s nullglob
+RPM_FILES=("$RPM_DIR"/*.rpm)
+shopt -u nullglob
+if [[ ${#RPM_FILES[@]} -gt 0 ]]; then
+    wait_for_rpm_lock
+    for rpm_file in "${RPM_FILES[@]}"; do
+        sudo dnf5 install -y --no-gpgchecks "$rpm_file" || FAILED_PACKAGES+=("$(basename "$rpm_file" .rpm)")
+    done
+fi
+rm -rf "$RPM_DIR"
+
+APPLICATIONS_DIR="$HOME/.local/share/applications"
+for shortcut in \
+    "io.github.eugeniosegala.mako.desktop" \
+    "io.github.eugeniosegala.mako.uninstaller.desktop"; do
+    rm -f "$APPLICATIONS_DIR/$shortcut"
+done
 
 LSFG_TMP="$(mktemp -d)"
 LSFG_UA="Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0"
@@ -584,56 +590,93 @@ else
 fi
 rm -rf "$LSFG_TMP"
 
-show_progress 6 $TOTAL_STEPS "$MSG_PHASE_2"
+show_progress 8 $TOTAL_STEPS "$MSG_PHASE_2"
 
-mkdir -p "$RPM_DIR"
-download_rpm() { wget -q --timeout=30 -O "$3" "$2" || rm -f "$3"; }
+# ==========================================================
+#  ETAP 3/4: OPTYMALIZACJA
+# ==========================================================
+show_progress 9 $TOTAL_STEPS "$MSG_PHASE_3"
 
-wait_for_rpm_lock
-if rpm -q discord &>/dev/null; then
-    :
-elif sudo dnf5 repolist 2>/dev/null | grep -iq "rpmfusion-nonfree"; then
-    sudo dnf5 install -y discord || true
+restore_packagekit
+
+KERNEL_ARGS="mitigations=off split_lock_detect=off"
+[[ $GPU_TYPE == *"nvidia"* ]] && KERNEL_ARGS="$KERNEL_ARGS nvidia_drm.modeset=1"
+
+if [ -f /etc/default/grub ]; then
+    sudo sed -i 's/^GRUB_TIMEOUT=.*/GRUB_TIMEOUT=0/' /etc/default/grub || true
+    for arg in $KERNEL_ARGS; do
+        grep -q "$arg" /etc/default/grub || sudo sed -i "s/^\(GRUB_CMDLINE_LINUX=\"[^\"]*\)\"/\1 $arg\"/; s/^\(GRUB_CMDLINE_LINUX_DEFAULT=\"[^\"]*\)\"/\1 $arg\"/" /etc/default/grub || true
+    done
+    sudo grub2-mkconfig -o /boot/grub2/grub.cfg 2>/dev/null || true
+fi
+sudo grubby --update-kernel=ALL --args="$KERNEL_ARGS" 2>/dev/null || true
+
+show_progress 10 $TOTAL_STEPS "$MSG_PHASE_3"
+
+DRACUT_CONF="/etc/dracut.conf.d/90-gpu.conf"
+FORCE_DRIVERS=""
+if [[ $GPU_TYPE == *"nvidia"* ]]; then
+    FORCE_DRIVERS+=" nvidia nvidia_modeset nvidia_uvm nvidia_drm"
+fi
+if [[ $GPU_TYPE == *"amd"* ]]; then
+    FORCE_DRIVERS+=" amdgpu"
+fi
+if [[ $GPU_TYPE == *"intel"* ]]; then
+    FORCE_DRIVERS+=" i915"
+fi
+
+if [ -n "$FORCE_DRIVERS" ]; then
+    echo "force_drivers+=\"${FORCE_DRIVERS} \"" | sudo tee "$DRACUT_CONF" > /dev/null
+    sudo dracut --force || true
 else
-    dest="/tmp/discord.rpm"
-    if wget -q --user-agent="Mozilla/5.0" "https://discord.com/api/download?platform=linux&format=rpm" -O "$dest"; then
-        if file "$dest" | grep -q "RPM"; then
-            wait_for_rpm_lock
-            sudo dnf5 install -y --no-gpgchecks "$dest" || true
-            rm -f "$dest"
-        fi
+    sudo rm -f "$DRACUT_CONF"
+fi
+
+show_progress 11 $TOTAL_STEPS "$MSG_PHASE_3"
+
+sudo systemctl enable --now fstrim.timer || true
+sudo systemctl enable --now bluetooth || true
+echo "options btusb enable_autosuspend=0" | sudo tee /etc/modprobe.d/btusb.conf > /dev/null
+
+for svc in libvirtd virtqemud; do
+    if systemctl list-unit-files "${svc}.service" 2>/dev/null | grep -q "$svc"; then
+        sudo systemctl enable --now "${svc}.service" || true
+        break
     fi
-fi
-
-OPENCODE_URL=""
-rpm -q opencode-desktop &>/dev/null || OPENCODE_URL=$(curl -sfL https://api.github.com/repos/anomalyco/opencode/releases/latest | grep "browser_download_url.*opencode-desktop-linux-x86_64\.rpm" | cut -d '"' -f 4 || true)
-[[ -n "$OPENCODE_URL" ]] && download_rpm "opencode-desktop" "$OPENCODE_URL" "$RPM_DIR/opencode-desktop.rpm"
-
-wait_for_rpm_lock
-if ! rpm -q faugus-launcher &>/dev/null; then
-    sudo dnf5 -y copr enable faugus/faugus-launcher && sudo dnf5 --refresh -y install faugus-launcher || true
-fi
-
-shopt -s nullglob
-RPM_FILES=("$RPM_DIR"/*.rpm)
-if [[ ${#RPM_FILES[@]} -gt 0 ]]; then
-    wait_for_rpm_lock
-    sudo dnf5 install -y --no-gpgchecks "${RPM_FILES[@]}" || true
-fi
-shopt -u nullglob
-rm -rf "$RPM_DIR"
-
-APPLICATIONS_DIR="$HOME/.local/share/applications"
-for shortcut in \
-    "io.github.eugeniosegala.mako.desktop" \
-    "io.github.eugeniosegala.mako.uninstaller.desktop"; do
-    rm -f "$APPLICATIONS_DIR/$shortcut"
 done
 
-show_progress 7 $TOTAL_STEPS "$MSG_PHASE_2"
+LIBVIRT_NET="192.168.122.0/24"
+if ip -4 -o addr show 2>/dev/null | awk '$2 != "virbr0" && $4 ~ /^192\.168\.122\./ {found=1} END {exit !found}'; then
+    LIBVIRT_NET="192.168.150.0/24"
+fi
 
-wait_for_rpm_lock
-install_missing -y --skip-unavailable virt-manager qemu-kvm qemu-img libvirt libvirt-daemon-kvm || true
+if ! sudo virsh net-info default &>/dev/null; then
+    sudo virsh net-define /usr/share/libvirt/networks/default.xml || true
+fi
+
+if [[ "$LIBVIRT_NET" == "192.168.150.0/24" ]]; then
+    LIBVIRT_NET_XML="$(mktemp)"
+    if sudo virsh net-dumpxml default --inactive 2>/dev/null > "$LIBVIRT_NET_XML" && grep -q '192\.168\.122\.' "$LIBVIRT_NET_XML"; then
+        sed -i 's/192\.168\.122\./192.168.150./g' "$LIBVIRT_NET_XML"
+        sudo virsh net-destroy default 2>/dev/null || true
+        sudo virsh net-undefine default 2>/dev/null || true
+        sudo virsh net-define "$LIBVIRT_NET_XML" || true
+    fi
+    rm -f "$LIBVIRT_NET_XML"
+fi
+
+sudo virsh net-start default 2>/dev/null || true
+sudo virsh net-autostart default 2>/dev/null || true
+
+if command -v firewall-cmd &>/dev/null; then
+    sudo systemctl enable --now firewalld || true
+    sudo firewall-cmd --permanent --zone=libvirt --add-interface=virbr0 2>/dev/null || true
+    sudo firewall-cmd --permanent --zone=trusted --add-source="$LIBVIRT_NET" 2>/dev/null || true
+    if pkg_installed openssh-server || systemctl is-active --quiet sshd 2>/dev/null; then
+        sudo firewall-cmd --permanent --add-service=ssh 2>/dev/null || true
+    fi
+    sudo firewall-cmd --reload 2>/dev/null || true
+fi
 
 if command -v dconf &>/dev/null; then
     dconf load /org/virt-manager/virt-manager/ <<'DCONFEOF'
@@ -670,88 +713,17 @@ enable-net-poll=true
 [vmlist-fields]
 disk-usage=false
 network-traffic=false
-
-autoconnect=1
-vm-window-size=(1280, 842)
 DCONFEOF
 fi
 
-for svc in libvirtd virtqemud; do
-    if systemctl list-unit-files "$svc.service" &>/dev/null 2>&1 && systemctl list-unit-files "$svc.service" | grep -q "$svc"; then
-        sudo systemctl enable --now "$svc.service" || true
-        break
-    fi
-done
-
-LIBVIRT_NET="192.168.122.0/24"
-if ip -4 -o addr show 2>/dev/null | awk '$2 != "virbr0" && $4 ~ /^192\.168\.122\./ {found=1} END {exit !found}'; then
-    LIBVIRT_NET="192.168.150.0/24"
-fi
-
-LIBVIRT_NET_XML="$(mktemp)"
-if sudo virsh net-info default &>/dev/null; then
-    sudo virsh net-dumpxml default --inactive > "$LIBVIRT_NET_XML"
-else
-    cp /usr/share/libvirt/networks/default.xml "$LIBVIRT_NET_XML"
-fi
-if [[ "$LIBVIRT_NET" == "192.168.150.0/24" ]] && grep -q '192\.168\.122\.' "$LIBVIRT_NET_XML"; then
-    sed -i 's/192\.168\.122\./192.168.150./g' "$LIBVIRT_NET_XML"
-    sudo virsh net-destroy default 2>/dev/null || true
-    sudo virsh net-undefine default 2>/dev/null || true
-fi
-if ! sudo virsh net-info default &>/dev/null; then
-    sudo virsh net-define "$LIBVIRT_NET_XML" || true
-fi
-rm -f "$LIBVIRT_NET_XML"
-sudo virsh net-start default 2>/dev/null || true
-sudo virsh net-autostart default || true
-
-if command -v firewall-cmd &>/dev/null; then
-    sudo systemctl enable --now firewalld || true
-    sudo firewall-cmd --permanent --zone=libvirt --add-interface=virbr0 2>/dev/null || true
-    sudo firewall-cmd --permanent --zone=trusted --add-source="$LIBVIRT_NET" 2>/dev/null || true
-    if rpm -q openssh-server &>/dev/null || systemctl is-active --quiet sshd 2>/dev/null; then
-        sudo firewall-cmd --permanent --add-service=ssh 2>/dev/null || true
-    fi
-    sudo firewall-cmd --reload 2>/dev/null || true
-fi
+sudo sed -i 's/^#\?[[:space:]]*DefaultTimeoutStopSec=.*/DefaultTimeoutStopSec=3s/' /etc/systemd/system.conf
+sudo sed -i 's/^#\?[[:space:]]*DefaultTimeoutStartSec=.*/DefaultTimeoutStartSec=3s/' /etc/systemd/system.conf
+sudo systemctl disable NetworkManager-wait-online.service 2>/dev/null || true
+sudo journalctl --vacuum-time=2d || true
 
 for grp in libvirt kvm; do
     getent group "$grp" &>/dev/null && sudo usermod -aG "$grp" "$CURRENT_USER" || true
 done
-
-show_progress 8 $TOTAL_STEPS "$MSG_PHASE_2"
-
-wait_for_rpm_lock
-install_missing -y flatpak || true
-
-if ! flatpak remote-list 2>/dev/null | grep -q "^flathub"; then
-    sudo flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo || true
-fi
-
-sudo flatpak update --appstream || true
-flatpak info com.github.tchx84.Flatseal &>/dev/null || sudo flatpak install -y flathub com.github.tchx84.Flatseal || true
-flatpak info it.mijorus.gearlever &>/dev/null || sudo flatpak install -y flathub it.mijorus.gearlever || true
-
-# ==========================================================
-#  ETAP 3/4: OPTYMALIZACJA
-# ==========================================================
-show_progress 9 $TOTAL_STEPS "$MSG_PHASE_3"
-
-sudo systemctl unmask packagekit.service packagekit-offline-update.service dnf-makecache.timer dnf-makecache.service dnf5-makecache.timer dnf5-makecache.service 2>/dev/null || true
-restore_packagekit
-sudo systemctl enable fstrim.timer || true
-sudo journalctl --vacuum-time=2d || true
-
-show_progress 10 $TOTAL_STEPS "$MSG_PHASE_3"
-
-sudo sed -i 's/^GRUB_TIMEOUT=.*/GRUB_TIMEOUT=0/' /etc/default/grub || true
-grep -q 'mitigations=off' /etc/default/grub || sudo sed -i 's/^\(GRUB_CMDLINE_LINUX_DEFAULT="[^"]*\)"/\1 mitigations=off"/' /etc/default/grub || true
-grep -q 'split_lock_detect=off' /etc/default/grub || sudo sed -i 's/^\(GRUB_CMDLINE_LINUX_DEFAULT="[^"]*\)"/\1 split_lock_detect=off"/' /etc/default/grub || true
-sudo grubby --update-kernel=ALL --args="mitigations=off split_lock_detect=off" 2>/dev/null || true
-sudo grub2-mkconfig -o /boot/grub2/grub.cfg 2>/dev/null || true
-
-show_progress 11 $TOTAL_STEPS "$MSG_PHASE_3"
 
 if command -v zsh &>/dev/null; then
     sudo chsh -s "$(command -v zsh)" "$CURRENT_USER" || true
@@ -765,10 +737,10 @@ if command -v zsh &>/dev/null; then
         git clone --depth=1 https://github.com/romkatv/powerlevel10k.git "$P10K_DIR" || true
     fi
 
-    ZSHRC="$HOME/.zshrc"
-    if [[ -f "$ZSHRC" ]]; then
-        sed -i 's|^ZSH_THEME=.*|ZSH_THEME="powerlevel10k/powerlevel10k"|' "$ZSHRC" || true
-        sed -i 's/^plugins=(.*/plugins=(git sudo systemd fedora dnf)/' "$ZSHRC" || true
+    if [[ -f ~/.zshrc ]]; then
+        sed -i 's|^ZSH_THEME=.*|ZSH_THEME="powerlevel10k/powerlevel10k"|' ~/.zshrc || true
+        sed -i 's/^plugins=(.*/plugins=(git sudo systemd fedora dnf)/' ~/.zshrc || true
+
         SHELL_LOCALE="${LANG:-${LC_ALL:-${LC_MESSAGES:-en_US.UTF-8}}}"
         if command -v locale &>/dev/null; then
             AVAILABLE_LOCALES="$(locale -a 2>/dev/null)"
@@ -776,10 +748,22 @@ if command -v zsh &>/dev/null; then
                 SHELL_LOCALE="en_US.UTF-8"
             fi
         fi
-        grep -q "^export LC_ALL=" "$ZSHRC" || echo "export LC_ALL=${SHELL_LOCALE}" >> "$ZSHRC"
-        grep -q "^fastfetch"         "$ZSHRC" || echo "fastfetch"                  >> "$ZSHRC"
-        grep -q "zsh-syntax-highlighting.zsh" "$ZSHRC" || echo "source /usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh" >> "$ZSHRC"
-        grep -q "zsh-autosuggestions.zsh"     "$ZSHRC" || echo "source /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh"         >> "$ZSHRC"
+        if ! grep -q "^export LC_ALL=" ~/.zshrc; then
+            {
+                echo ""
+                echo "export LC_ALL=${SHELL_LOCALE}"
+                echo "export LC_MESSAGES=${SHELL_LOCALE}"
+                echo "fastfetch"
+            } >> ~/.zshrc
+        fi
+
+        if ! grep -q "zsh-syntax-highlighting.zsh" ~/.zshrc; then
+            {
+                echo ""
+                echo "source /usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh"
+                echo "source /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh"
+            } >> ~/.zshrc
+        fi
     fi
 fi
 
