@@ -633,7 +633,7 @@ done
 show_progress 7 $TOTAL_STEPS "$MSG_PHASE_2"
 
 wait_for_rpm_lock
-install_missing -y --skip-unavailable virt-manager qemu-kvm qemu-img libvirt libvirt-daemon-kvm edk2-ovmf dnsmasq || true
+install_missing -y --skip-unavailable virt-manager qemu-kvm qemu-img libvirt libvirt-daemon-kvm || true
 
 if command -v dconf &>/dev/null; then
     dconf load /org/virt-manager/virt-manager/ <<'DCONFEOF'
