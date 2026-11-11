@@ -520,8 +520,9 @@ show_progress 6 $TOTAL_STEPS "$MSG_PHASE_2"
 if command -v flatpak &>/dev/null; then
     sudo flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo || true
     sudo flatpak update --appstream || true
-    flatpak info com.github.tchx84.Flatseal &>/dev/null || sudo flatpak install -y flathub com.github.tchx84.Flatseal || true
-    flatpak info it.mijorus.gearlever &>/dev/null || sudo flatpak install -y flathub it.mijorus.gearlever || true
+    for fp_app in com.github.tchx84.Flatseal it.mijorus.gearlever; do
+        flatpak info "$fp_app" &>/dev/null || sudo flatpak install -y flathub "$fp_app" || FAILED_PACKAGES+=("flatpak:$fp_app")
+    done
 fi
 
 show_progress 7 $TOTAL_STEPS "$MSG_PHASE_2"
@@ -529,7 +530,7 @@ show_progress 7 $TOTAL_STEPS "$MSG_PHASE_2"
 install_dnf_pkgs faugus-launcher
 
 mkdir -p "$RPM_DIR"
-download_rpm() { wget -q --timeout=30 -O "$3" "$2" || rm -f "$3"; }
+download_rpm() { wget -q --timeout=30 -O "$3" "$2" || { rm -f "$3"; FAILED_PACKAGES+=("$1"); }; }
 
 wait_for_rpm_lock
 if pkg_installed discord; then
@@ -541,13 +542,23 @@ else
     if wget -q --user-agent="Mozilla/5.0" "https://discord.com/api/download?platform=linux&format=rpm" -O "$dest"; then
         if ! file "$dest" | grep -q "RPM"; then
             rm -f "$dest"
+            FAILED_PACKAGES+=("discord")
         fi
+    else
+        rm -f "$dest"
+        FAILED_PACKAGES+=("discord")
     fi
 fi
 
 OPENCODE_URL=""
 pkg_installed opencode-desktop || OPENCODE_URL=$(curl -sfL https://api.github.com/repos/anomalyco/opencode/releases/latest | grep "browser_download_url.*opencode-desktop-linux-x86_64\.rpm" | cut -d '"' -f 4 || true)
-[[ -n "$OPENCODE_URL" ]] && download_rpm "opencode-desktop" "$OPENCODE_URL" "$RPM_DIR/opencode-desktop.rpm"
+if ! pkg_installed opencode-desktop; then
+    if [[ -n "$OPENCODE_URL" ]]; then
+        download_rpm "opencode-desktop" "$OPENCODE_URL" "$RPM_DIR/opencode-desktop.rpm"
+    else
+        FAILED_PACKAGES+=("opencode-desktop")
+    fi
+fi
 
 shopt -s nullglob
 RPM_FILES=("$RPM_DIR"/*.rpm)
@@ -585,8 +596,7 @@ fi
 if [[ -n "$LSFG_URL" ]] && curl -fsSL -A "$LSFG_UA" -o "$LSFG_TMP/lsfg-vk.tar.xz" "$LSFG_URL" 2>/dev/null && tar -tf "$LSFG_TMP/lsfg-vk.tar.xz" &>/dev/null && mkdir -p "$HOME/.local" && tar -xf "$LSFG_TMP/lsfg-vk.tar.xz" -C "$HOME/.local"; then
     :
 else
-    log_warn "lsfg-vk: nie udało się pobrać gotowej paczki, pomijam" \
-             "lsfg-vk: failed to download prebuilt package, skipping"
+    FAILED_PACKAGES+=("lsfg-vk")
 fi
 rm -rf "$LSFG_TMP"
 
@@ -730,11 +740,12 @@ if command -v zsh &>/dev/null; then
 
     if [[ ! -d "$HOME/.oh-my-zsh" ]]; then
         sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended || true
+        [[ -d "$HOME/.oh-my-zsh" ]] || FAILED_PACKAGES+=("oh-my-zsh")
     fi
 
     P10K_DIR="${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}/themes/powerlevel10k"
     if [[ ! -d "$P10K_DIR" ]]; then
-        git clone --depth=1 https://github.com/romkatv/powerlevel10k.git "$P10K_DIR" || true
+        git clone --depth=1 https://github.com/romkatv/powerlevel10k.git "$P10K_DIR" || FAILED_PACKAGES+=("powerlevel10k")
     fi
 
     if [[ -f ~/.zshrc ]]; then
