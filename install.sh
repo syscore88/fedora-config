@@ -285,7 +285,7 @@ for DNF_CONF in /etc/dnf/dnf.conf /etc/dnf/dnf5.conf; do
     fi
 done
 
-install_dnf_pkgs wget curl pciutils dconf dnf-plugins-core gnupg2 xz
+install_dnf_pkgs wget2-wget curl pciutils dconf dnf-plugins-core gnupg2 xz
 
 GPU_TYPE="unknown"
 HYBRID_GPU=false
@@ -474,7 +474,7 @@ PKGS_32BIT=(
 )
 
 PKGS_CODECS=(
-    ffmpeg x264 gstreamer1-libav gstreamer1-plugins-bad-freeworld gstreamer1-plugins-good
+    ffmpeg x264 gstreamer1-plugin-libav gstreamer1-plugins-bad-freeworld gstreamer1-plugins-good
     gstreamer1-plugins-bad-free gstreamer1-plugins-ugly
 )
 
