@@ -629,6 +629,19 @@ done
 
 if [[ "$LSFG_INSTALLED" -eq 0 ]]; then
     FAILED_PACKAGES+=("lsfg-vk")
+else
+    for LSFG_BIN in lsfg-vk-ui lsfg-vk-cli; do
+        if [[ -x "$HOME/.local/bin/$LSFG_BIN" ]]; then
+            sudo ln -sf "$HOME/.local/bin/$LSFG_BIN" "/usr/local/bin/$LSFG_BIN" || true
+        fi
+    done
+    mkdir -p "$HOME/.local/share/applications"
+    for LSFG_DESKTOP in "$HOME"/.local/share/applications/*lsfg*.desktop; do
+        [[ -f "$LSFG_DESKTOP" ]] || continue
+        sed -i -E "s|^Exec=\"?lsfg-vk-ui|Exec=$HOME/.local/bin/lsfg-vk-ui|; /^TryExec=/d" "$LSFG_DESKTOP" || true
+    done
+    update-desktop-database "$HOME/.local/share/applications" 2>/dev/null || true
+    kbuildsycoca6 2>/dev/null || true
 fi
 rm -rf "$LSFG_TMP"
 
