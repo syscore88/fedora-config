@@ -771,8 +771,8 @@ network-traffic=false
 DCONFEOF
 fi
 
-sudo sed -i 's/^#\?[[:space:]]*DefaultTimeoutStopSec=.*/DefaultTimeoutStopSec=3s/' /etc/systemd/system.conf
-sudo sed -i 's/^#\?[[:space:]]*DefaultTimeoutStartSec=.*/DefaultTimeoutStartSec=3s/' /etc/systemd/system.conf
+sudo mkdir -p /etc/systemd/system.conf.d
+printf '[Manager]\nDefaultTimeoutStopSec=3s\nDefaultTimeoutStartSec=3s\n' | sudo tee /etc/systemd/system.conf.d/10-timeouts.conf >/dev/null
 sudo systemctl disable NetworkManager-wait-online.service 2>/dev/null || true
 sudo journalctl --vacuum-time=2d || true
 
