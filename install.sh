@@ -461,9 +461,7 @@ SYSTEM_PKGS=(
     @development-tools @c-development gcc make flatpak
     cdemu-daemon cdemu-client gcdemu
     virt-manager qemu-kvm qemu-img libvirt libvirt-daemon-kvm
-    libxcb qt6-qtbase qt6-qtbase-common qt6-qtbase-gui
-    qt6-qtdeclarative qt6-qtsvg qt6-qtwayland qt6-qt5compat
-    qt6-qtshadertools qt6-qttools
+    qt6-qtbase qt6-qtdeclarative
 )
 
 PKGS_32BIT=(
