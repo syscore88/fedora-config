@@ -22,20 +22,14 @@ SCRIPT_LANG=$(detect_lang)
 if [ "$SCRIPT_LANG" = "pl" ]; then
     MSG_TITLE="                  KONSERWACJA SYSTEMU                  "
     MSG_ASK_PASS="Proszę podać hasło administratora (sudo):"
-    MSG_PHASE_UPDATE="[1/2]         Optymalizacja..."
-    MSG_PHASE_CLEAN_SYS="[2/2] Czyszczenie systemowe..."
+    MSG_PHASE_CLEAN_SYS="[1/1] Czyszczenie systemowe..."
     MSG_DONE="             KONSERWACJA SYSTEMU ZAKOŃCZONA!           "
-    MSG_RESTART_WARN="UWAGA: Zalecany jest restart komputera"
-    MSG_NO_RESTART="Restart systemu nie jest aktualnie wymagany."
     MSG_PRESS_ENTER="Naciśnij Enter, aby zamknąć okno..."
 else
     MSG_TITLE="                   SYSTEM MAINTENANCE                   "
     MSG_ASK_PASS="Please enter the administrator (sudo) password:"
-    MSG_PHASE_UPDATE="[1/2]         Optimization..."
-    MSG_PHASE_CLEAN_SYS="[2/2] System cleanup..."
+    MSG_PHASE_CLEAN_SYS="[1/1] System cleanup..."
     MSG_DONE="             SYSTEM MAINTENANCE COMPLETE!           "
-    MSG_RESTART_WARN="WARNING: A system restart is recommended"
-    MSG_NO_RESTART="A system restart is not currently required."
     MSG_PRESS_ENTER="Press Enter to close this window..."
 fi
 
@@ -178,32 +172,26 @@ if ! sudo -n true 2>/dev/null; then
     exit 1
 fi
 
-REBOOT_NEEDED=false
-FWUPD_RESTART_NEEDED=false
-TOTAL_STEPS=15
+TOTAL_STEPS=13
 STEP=0
-show_progress $STEP $TOTAL_STEPS "$MSG_PHASE_UPDATE"
+show_progress $STEP $TOTAL_STEPS "$MSG_PHASE_CLEAN_SYS"
 
 # ---------------------------------------------------------------
-# PHASE: UPDATE 
+# PHASE: DESKTOP EXTENSIONS AND FIRMWARE
 # ---------------------------------------------------------------
 if command -v gext &> /dev/null; then
     gext update
 fi
-STEP=$((STEP+1)); show_progress $STEP $TOTAL_STEPS "$MSG_PHASE_UPDATE"
+STEP=$((STEP+1)); show_progress $STEP $TOTAL_STEPS "$MSG_PHASE_CLEAN_SYS"
 
 if command -v cinnamon-spice-updater &> /dev/null; then
     cinnamon-spice-updater --update-all
 fi
-STEP=$((STEP+1)); show_progress $STEP $TOTAL_STEPS "$MSG_PHASE_UPDATE"
+STEP=$((STEP+1)); show_progress $STEP $TOTAL_STEPS "$MSG_PHASE_CLEAN_SYS"
 
 if command -v fwupdmgr &> /dev/null; then
     sudo fwupdmgr refresh --force
-    FWUPD_OUT=$(sudo fwupdmgr update -y 2>&1)
-    echo "$FWUPD_OUT"
-    if echo "$FWUPD_OUT" | grep -qiE "restart|reboot"; then
-        FWUPD_RESTART_NEEDED=true
-    fi
+    sudo fwupdmgr update -y
 fi
 STEP=$((STEP+1)); show_progress $STEP $TOTAL_STEPS "$MSG_PHASE_CLEAN_SYS"
 
@@ -268,24 +256,8 @@ rm -rf "$HOME/.cache/virt-manager" 2>/dev/null
 STEP=$((STEP+1)); show_progress $STEP $TOTAL_STEPS "$MSG_PHASE_CLEAN_SYS"
 
 # ---------------------------------------------------------------
-# PHASE: RESTART CHECK
+# REMOVE TEMPORARY PRIVILEGES
 # ---------------------------------------------------------------
-if command -v dnf5 &> /dev/null; then
-    if ! dnf5 needs-restarting &>/dev/null; then
-        REBOOT_NEEDED=true
-    fi
-elif command -v needs-restarting &> /dev/null; then
-    if ! needs-restarting -r &>/dev/null; then
-        REBOOT_NEEDED=true
-    fi
-fi
-STEP=$((STEP+1)); show_progress $STEP $TOTAL_STEPS "$MSG_PHASE_CLEAN_SYS"
-
-if [ "$FWUPD_RESTART_NEEDED" = true ]; then
-    REBOOT_NEEDED=true
-fi
-STEP=$((STEP+1)); show_progress $STEP $TOTAL_STEPS "$MSG_PHASE_CLEAN_SYS"
-
 if [[ "$USE_RUN0" -eq 1 ]]; then
     sudo rm -f "$RUN0_NOPASSWD_FILE"
     sudo systemctl try-restart polkit 2>/dev/null || true
@@ -297,11 +269,5 @@ echo -e "\n" >&3
 echo -e "${SUCCESS}======================================================${NC}" >&3
 echo -e "${SUCCESS}${MSG_DONE}${NC}" >&3
 echo -e "${SUCCESS}======================================================${NC}" >&3
-
-if [ "$REBOOT_NEEDED" = true ]; then
-    echo -e "${WARN}${MSG_RESTART_WARN}${NC}" >&3
-else
-    echo -e "${SUCCESS}${MSG_NO_RESTART}${NC}" >&3
-fi
 echo -e "${WARN}${MSG_PRESS_ENTER}${NC}" >&3
 read -r
