@@ -239,6 +239,7 @@ find ~/.cache -type f -atime +14 \
     ! -path "*/chromium/*" \
     ! -path "*/BraveSoftware/*" \
     ! -path "*/opera/*" \
+    ! -path "*/vivaldi/*" \
     -delete 2>/dev/null
 STEP=$((STEP+1)); show_progress $STEP $TOTAL_STEPS "$MSG_PHASE_CLEAN_SYS"
 
