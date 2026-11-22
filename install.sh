@@ -384,7 +384,7 @@ TO_REMOVE=(
 )
 wait_for_rpm_lock
 
-CORE_PKGS=(plasma-desktop plasma-workspace gnome-shell gnome-session gdm sddm NetworkManager sudo cosmic-session)
+CORE_PKGS=(plasma-desktop plasma-workspace gnome-shell gnome-session gdm plasma-login-manager NetworkManager sudo cosmic-session)
 sudo mkdir -p /etc/dnf/protected.d
 printf '%s\n' "${CORE_PKGS[@]}" | sudo tee "$PROTECTED_CONF" > /dev/null
 for core in "${CORE_PKGS[@]}"; do
