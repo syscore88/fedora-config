@@ -29,9 +29,12 @@ RPM_DIR="$(mktemp -d /tmp/rpms.XXXXXX)"
 FAILED_PACKAGES=()
 SUDOERS_TMP=""
 LIBVIRT_NET_XML=""
+LIBVIRT_NET_BAK=""
+LIBVIRT_NET_RESTORE=0
 LSFG_TMP=""
 BRAVE_GNUPGHOME=""
 SUDO_READY=0
+USE_RUN0=0
 SUDO_KEEPALIVE_PID=""
 QUIET_WARNS=0
 PACKAGEKIT_MASKED_UNITS=()
@@ -42,6 +45,14 @@ PROTECTED_CONF="/etc/dnf/protected.d/99-installer-core.conf"
 exec 3>&1
 exec >>"$TMP_LOG" 2>&1
 
+_sudo_n() {
+    if [ "${USE_RUN0:-0}" -eq 1 ]; then
+        sudo "$@"
+    else
+        sudo -n "$@"
+    fi
+}
+
 cleanup_on_exit() {
     local exit_code=$?
     trap '' INT TERM HUP
@@ -51,25 +62,32 @@ cleanup_on_exit() {
     [ -n "${SUDO_KEEPALIVE_PID:-}" ] && kill "$SUDO_KEEPALIVE_PID" 2>/dev/null
     declare -F restore_packagekit >/dev/null && restore_packagekit
 
-    rm -f "$SUDOERS_TMP" "$LIBVIRT_NET_XML" /tmp/discord.rpm
+    if [ "${SUDO_READY:-0}" = "1" ] && [ "${LIBVIRT_NET_RESTORE:-0}" = "1" ] && [ -s "${LIBVIRT_NET_BAK:-}" ]; then
+        _sudo_n virsh net-define "$LIBVIRT_NET_BAK" &>/dev/null
+        _sudo_n virsh net-start default &>/dev/null
+        _sudo_n virsh net-autostart default &>/dev/null
+    fi
+
+    rm -f "$SUDOERS_TMP" "$LIBVIRT_NET_XML" "$LIBVIRT_NET_BAK" /tmp/discord.rpm
     rm -rf "$RPM_DIR" "$LSFG_TMP" "$BRAVE_GNUPGHOME"
+
+    if [ "$exit_code" -ne 0 ] || [ "${#FAILED_PACKAGES[@]}" -gt 0 ] || [ "${QUIET_WARNS:-0}" -gt 0 ]; then
+        cp -f "$TMP_LOG" "$LOG_FILE" 2>/dev/null
+    else
+        rm -f "$LOG_FILE"
+    fi
 
     {
         printf '\033[?7h'
         if [ "$exit_code" -ne 0 ] || [ "${#FAILED_PACKAGES[@]}" -gt 0 ]; then
             echo -e "\n"
-            cp -f "$TMP_LOG" "$LOG_FILE"
-            if [ "$exit_code" -ne 0 ]; then
-                if [[ "$SCRIPT_LANG" == "pl" ]]; then
-                    echo -e "${ERR}[X] Wystąpił błąd (kod: $exit_code). Szczegółowy log zapisano w: $LOG_FILE${NC}"
-                else
-                    echo -e "${ERR}[X] An error occurred (code: $exit_code). Detailed log saved to: $LOG_FILE${NC}"
-                fi
+        fi
+        if [ "$exit_code" -ne 0 ]; then
+            if [[ "$SCRIPT_LANG" == "pl" ]]; then
+                echo -e "${ERR}[X] Wystąpił błąd (kod: $exit_code). Szczegółowy log zapisano w: $LOG_FILE${NC}"
+            else
+                echo -e "${ERR}[X] An error occurred (code: $exit_code). Detailed log saved to: $LOG_FILE${NC}"
             fi
-        elif [ "${QUIET_WARNS:-0}" -eq 0 ]; then
-            rm -f "$LOG_FILE"
-        else
-            cp -f "$TMP_LOG" "$LOG_FILE"
         fi
     } >&3 2>/dev/null
     rm -f "$TMP_LOG"
@@ -77,7 +95,7 @@ cleanup_on_exit() {
     local do_reboot=0
     [ "$exit_code" -eq 0 ] && [ "${DO_REBOOT:-0}" = "1" ] && do_reboot=1
     if [ "${SUDO_READY:-0}" = "1" ]; then
-        sudo sh -c 'rm -f "$1" "$2" "$3"; systemctl try-restart polkit 2>/dev/null; if [ "$4" = 1 ]; then systemctl reboot; fi' _ \
+        _sudo_n sh -c 'rm -f "$1" "$2" "$3"; systemctl try-restart polkit 2>/dev/null; if [ "$4" = 1 ]; then systemctl reboot; fi' _ \
             "$RUN0_NOPASSWD_FILE" "$TEMP_SUDOERS" "$PROTECTED_CONF" "$do_reboot"
     fi
 }
@@ -87,7 +105,7 @@ trap 'exit 143' TERM
 trap 'exit 129' HUP
 
 _pick_msg() { [[ "$SCRIPT_LANG" == "pl" ]] && echo "$1" || echo "$2"; }
-_log_write() { printf "\r\033[K" >&3; echo -e "$1" >&3; echo -e "$1"; cp -f "$TMP_LOG" "$LOG_FILE" 2>/dev/null || true; }
+_log_write() { printf "\r\033[K" >&3 2>/dev/null || true; echo -e "$1" >&3 2>/dev/null || true; echo -e "$1"; cp -f "$TMP_LOG" "$LOG_FILE" 2>/dev/null || true; }
 log_info()  { local m; m="$(_pick_msg "$1" "$2")"; _log_write "${INFO}==> $m${NC}"; }
 log_ok()    { local m; m="$(_pick_msg "$1" "$2")"; _log_write "${SUCCESS}[OK] $m${NC}"; }
 log_err()   { local m; m="$(_pick_msg "$1" "$2")"; _log_write "${ERR}[X] ERROR: $m${NC}"; }
@@ -127,7 +145,7 @@ disable_packagekit() {
 restore_packagekit() {
     [[ "${PACKAGEKIT_MASKED:-0}" -eq 1 ]] || return 0
     if [ "${#PACKAGEKIT_MASKED_UNITS[@]}" -gt 0 ]; then
-        sudo systemctl unmask "${PACKAGEKIT_MASKED_UNITS[@]}" 2>/dev/null || true
+        _sudo_n systemctl unmask "${PACKAGEKIT_MASKED_UNITS[@]}" 2>/dev/null || true
     fi
     PACKAGEKIT_MASKED=0
 }
@@ -197,7 +215,7 @@ show_progress() {
     if [ $filled -gt 0 ]; then printf -v bar_filled '%*s' "$filled" ''; bar_filled="${bar_filled// /#}"; fi
     if [ $empty -gt 0 ]; then printf -v bar_empty '%*s' "$empty" ''; bar_empty="${bar_empty// /-}"; fi
 
-    printf "\r\033[K[\033[1;32m%s\033[0;90m%s\033[0m] %3d%% | \033[1;36m%s\033[0m" "$bar_filled" "$bar_empty" "$percent" "$msg" >&3
+    printf "\r\033[K[\033[1;32m%s\033[0;90m%s\033[0m] %3d%% | \033[1;36m%s\033[0m" "$bar_filled" "$bar_empty" "$percent" "$msg" >&3 2>/dev/null || true
 }
 
 if [[ "$SCRIPT_LANG" == "pl" ]]; then
@@ -216,9 +234,9 @@ TOTAL_STEPS=12
 
 if [[ "$EUID" -eq 0 ]]; then
     if [[ "$SCRIPT_LANG" == "pl" ]]; then
-        echo -e "${ERR}[X] Nie uruchamiaj skryptu jako root. Użyj zwykłego użytkownika z sudo.${NC}" >&3
+        echo -e "${ERR}[X] Nie uruchamiaj skryptu jako root. Użyj zwykłego użytkownika z sudo.${NC}" >&3 2>/dev/null || true
     else
-        echo -e "${ERR}[X] Do not run this script as root. Run as a normal user with sudo.${NC}" >&3
+        echo -e "${ERR}[X] Do not run this script as root. Run as a normal user with sudo.${NC}" >&3 2>/dev/null || true
     fi
     exit 1
 fi
@@ -226,7 +244,7 @@ fi
 CURRENT_USER=$(whoami)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &> /dev/null && pwd)"
 
-printf '\033[?7h\n' >&3
+printf '\033[?7h\n' >&3 2>/dev/null || true
 
 USE_RUN0=0
 SUDO_VERSION_OUT="$(sudo --version 2>/dev/null || true)"
@@ -235,15 +253,13 @@ if ! command -v visudo >/dev/null 2>&1 || grep -qi "run0" <<< "$SUDO_VERSION_OUT
 fi
 
 if [[ "$USE_RUN0" -eq 1 ]]; then
-    SUDO_READY=1
-    sudo tee "$RUN0_NOPASSWD_FILE" > /dev/null << EOF
-polkit.addRule(function(action, subject) {
-    if (subject.user == "$CURRENT_USER") {
-        return polkit.Result.YES;
-    }
-});
-EOF
-    sudo systemctl try-restart polkit 2>/dev/null || true
+    if printf 'polkit.addRule(function(action, subject) {\n    if (subject.user == "%s") {\n        return polkit.Result.YES;\n    }\n});\n' "$CURRENT_USER" | sudo tee "$RUN0_NOPASSWD_FILE" > /dev/null; then
+        SUDO_READY=1
+        sudo systemctl try-restart polkit 2>/dev/null || true
+    else
+        log_err "Nie udało się uzyskać uprawnień administratora." "Failed to obtain administrator privileges."
+        exit 1
+    fi
 else
     sudo -v
     SUDO_READY=1
@@ -266,9 +282,9 @@ else
     else
         rm -f "$SUDOERS_TMP"
         if [[ "$SCRIPT_LANG" == "pl" ]]; then
-            echo -e "${ERR}[X] Nieprawidłowa składnia pliku sudoers – przerywam.${NC}" >&3
+            echo -e "${ERR}[X] Nieprawidłowa składnia pliku sudoers – przerywam.${NC}" >&3 2>/dev/null || true
         else
-            echo -e "${ERR}[X] Invalid sudoers rule syntax - aborting.${NC}" >&3
+            echo -e "${ERR}[X] Invalid sudoers rule syntax - aborting.${NC}" >&3 2>/dev/null || true
         fi
         exit 1
     fi
@@ -276,7 +292,7 @@ else
     SUDOERS_TMP=""
 fi
 
-printf '\033[?7l' >&3
+printf '\033[?7l' >&3 2>/dev/null || true
 
 # ==========================================================
 #  ETAP 1/4: PRZYGOTOWYWANIE
@@ -313,7 +329,7 @@ install_dnf_pkgs() {
 
 for DNF_CONF in /etc/dnf/dnf.conf /etc/dnf/dnf5.conf; do
     if [[ -f "$DNF_CONF" ]]; then
-        sudo sed -i '/^fastestmirror=/d; /^retries=/d; /^timeout=/d; /^max_parallel_downloads=/d; /^ip_resolve=/d' "$DNF_CONF"
+        sudo sed -i '/^fastestmirror=/d; /^retries=/d; /^timeout=/d; /^max_parallel_downloads=/d; /^ip_resolve=/d' "$DNF_CONF" || true
         echo -e "fastestmirror=False\nmax_parallel_downloads=10\nretries=10\ntimeout=120\nip_resolve=4" | sudo tee -a "$DNF_CONF" > /dev/null
     fi
 done
@@ -347,7 +363,7 @@ if command -v lspci &>/dev/null; then
     elif [ "$TOTAL_KNOWN" -ge 2 ]; then
         HYBRID_GPU=true
         GPU_TYPE="$(IFS=+; echo "${GPU_VENDORS[*]}")"
-        log_info "Wykryto hybrydowy układ graficzny (HYBRID_GPU=$HYBRID_GPU): $GPU_TYPE" "Detected a hybrid GPU setup (HYBRID_GPU=$HYBRID_GPU): $GPU_TYPE"
+        _pick_msg "Wykryto hybrydowy układ graficzny (HYBRID_GPU=$HYBRID_GPU): $GPU_TYPE" "Detected a hybrid GPU setup (HYBRID_GPU=$HYBRID_GPU): $GPU_TYPE"
     else
         HYBRID_GPU=false
         GPU_TYPE="${GPU_VENDORS[0]}"
@@ -397,9 +413,13 @@ for pkg in "${TO_REMOVE[@]}"; do
 done
 if [ "${#INSTALLED_PACKAGES[@]}" -gt 0 ]; then
     if ! sudo dnf5 remove -y "${INSTALLED_PACKAGES[@]}"; then
-        for pkg in "${INSTALLED_PACKAGES[@]}"; do
-            pkg_installed "$pkg" || continue
-            sudo dnf5 remove -y "$pkg" 2>/dev/null || true
+        removed_any=1
+        while [ "$removed_any" -eq 1 ]; do
+            removed_any=0
+            for pkg in "${INSTALLED_PACKAGES[@]}"; do
+                pkg_installed "$pkg" || continue
+                sudo dnf5 remove -y "$pkg" 2>/dev/null && removed_any=1
+            done
         done
         STILL_INSTALLED=()
         for pkg in "${INSTALLED_PACKAGES[@]}"; do
@@ -452,11 +472,11 @@ if (( ${#RPMFUSION_URLS[@]} > 0 )); then
     sudo dnf5 install -y --no-gpgchecks "${RPMFUSION_URLS[@]}" || true
 fi
 
-OLD_GOOGLE_KEYS=$(rpm -qa 'gpg-pubkey*' --qf '%{NAME}-%{VERSION}-%{RELEASE} %{PACKAGER}\n' 2>/dev/null \
+mapfile -t OLD_GOOGLE_KEYS < <(rpm -qa 'gpg-pubkey*' --qf '%{NAME}-%{VERSION}-%{RELEASE} %{PACKAGER}\n' 2>/dev/null \
     | grep -i 'linux-packages-keymaster@google.com\|Google, Inc' \
     | cut -d' ' -f1 || true)
-if [[ -n "$OLD_GOOGLE_KEYS" ]]; then
-    sudo rpm -e $OLD_GOOGLE_KEYS 2>/dev/null || true
+if (( ${#OLD_GOOGLE_KEYS[@]} > 0 )); then
+    sudo rpm -e "${OLD_GOOGLE_KEYS[@]}" 2>/dev/null || true
 fi
 sudo rpm --import https://dl.google.com/linux/linux_signing_key.pub || true
 
@@ -567,7 +587,7 @@ for f in /etc/xdg/autostart/gcdemu.desktop /etc/xdg/autostart/cdemu.desktop /usr
     if [[ -f "$f" ]]; then
         cp -f "$f" "$HOME/.config/autostart/$(basename "$f")"
         if grep -q '^Hidden=' "$HOME/.config/autostart/$(basename "$f")"; then
-            sed -i 's/^Hidden=.*/Hidden=true/' "$HOME/.config/autostart/$(basename "$f")"
+            sed -i 's/^Hidden=.*/Hidden=true/' "$HOME/.config/autostart/$(basename "$f")" || true
         else
             echo "Hidden=true" >> "$HOME/.config/autostart/$(basename "$f")"
         fi
@@ -599,7 +619,7 @@ elif [[ -n "$(dnf5 repoquery -q discord 2>/dev/null || true)" ]]; then
     install_dnf_pkgs discord
 else
     dest="$RPM_DIR/discord.rpm"
-    if wget -q --user-agent="Mozilla/5.0" "https://discord.com/api/download?platform=linux&format=rpm" -O "$dest"; then
+    if wget -q --timeout=30 --user-agent="Mozilla/5.0" "https://discord.com/api/download?platform=linux&format=rpm" -O "$dest"; then
         if ! grep -q "RPM" <<< "$(file "$dest" 2>/dev/null)"; then
             rm -f "$dest"
             FAILED_PACKAGES+=("discord")
@@ -611,7 +631,10 @@ else
 fi
 
 OPENCODE_URL=""
-pkg_installed opencode-desktop || OPENCODE_URL=$(curl -sfL https://api.github.com/repos/anomalyco/opencode/releases/latest | grep "browser_download_url.*opencode-desktop-linux-x86_64\.rpm" | cut -d '"' -f 4 || true)
+if ! pkg_installed opencode-desktop; then
+    OPENCODE_JSON="$(curl -sfL https://api.github.com/repos/anomalyco/opencode/releases/latest 2>/dev/null || true)"
+    OPENCODE_URL="$(grep -m1 '"browser_download_url".*opencode-desktop-linux-x86_64\.rpm"' <<< "$OPENCODE_JSON" | cut -d '"' -f 4 || true)"
+fi
 if ! pkg_installed opencode-desktop; then
     if [[ -n "$OPENCODE_URL" ]]; then
         download_rpm "opencode-desktop" "$OPENCODE_URL" "$RPM_DIR/opencode-desktop.rpm"
@@ -667,8 +690,8 @@ for LSFG_URL in "${LSFG_URLS[@]}"; do
     rm -f "$LSFG_TMP/lsfg-vk.tar.xz"
     if curl -fsSL --retry 3 --retry-delay 2 -A "$LSFG_UA" -e "$LSFG_BASE/" -o "$LSFG_TMP/lsfg-vk.tar.xz" "$LSFG_URL" 2>/dev/null; then
         if LSFG_TAR_LIST="$(tar -tf "$LSFG_TMP/lsfg-vk.tar.xz" 2>/dev/null)"; then
-            if printf '%s\n' "$LSFG_TAR_LIST" | grep -qE '(^|/)bin/lsfg-vk-(ui|cli)$'; then
-                BIN_LINE="$(printf '%s\n' "$LSFG_TAR_LIST" | grep -E '(^|/)bin/lsfg-vk-(ui|cli)$' | head -n 1)"
+            if grep -qE '(^|/)bin/lsfg-vk-(ui|cli)$' <<< "$LSFG_TAR_LIST"; then
+                BIN_LINE="$(grep -m1 -E '(^|/)bin/lsfg-vk-(ui|cli)$' <<< "$LSFG_TAR_LIST")"
                 PREFIX="${BIN_LINE%bin/lsfg-vk-*}"
                 PREFIX="${PREFIX#./}"
                 STRIP=0
@@ -718,16 +741,27 @@ KERNEL_ARGS="mitigations=off split_lock_detect=off"
 [[ $GPU_TYPE == *"nvidia"* ]] && KERNEL_ARGS="$KERNEL_ARGS nvidia_drm.modeset=1"
 
 if [ -f /etc/default/grub ]; then
-    sudo sed -i 's/^GRUB_TIMEOUT=.*/GRUB_TIMEOUT=0/' /etc/default/grub || true
-    GRUB_CMDLINE_LINES="$(grep -E '^GRUB_CMDLINE_LINUX(_DEFAULT)?=' /etc/default/grub || true)"
+    if grep -q '^#\?GRUB_TIMEOUT=' /etc/default/grub; then
+        sudo sed -i 's/^#\?GRUB_TIMEOUT=.*/GRUB_TIMEOUT=0/' /etc/default/grub || true
+    else
+        echo 'GRUB_TIMEOUT=0' | sudo tee -a /etc/default/grub > /dev/null || true
+    fi
+    GRUB_KEY="GRUB_CMDLINE_LINUX"
+    grep -q '^GRUB_CMDLINE_LINUX=' /etc/default/grub || GRUB_KEY="GRUB_CMDLINE_LINUX_DEFAULT"
+    GRUB_CMDLINE_CURRENT="$(awk -F= -v k="$GRUB_KEY" '$1 == k {v=substr($0, index($0,"=")+1); gsub(/^["\047]|["\047]$/, "", v); last=v} END{print last}' /etc/default/grub 2>/dev/null || true)"
+    GRUB_CMDLINE_NEW="$GRUB_CMDLINE_CURRENT"
     for arg in $KERNEL_ARGS; do
-        [[ " ${GRUB_CMDLINE_LINES//\"/ } " == *" $arg "* ]] && continue
-        if grep -q '^GRUB_CMDLINE_LINUX="' /etc/default/grub; then
-            sudo sed -i "s|^\(GRUB_CMDLINE_LINUX=\"[^\"]*\)\"|\1 $arg\"|" /etc/default/grub || true
-        else
-            sudo sed -i "s|^\(GRUB_CMDLINE_LINUX_DEFAULT=\"[^\"]*\)\"|\1 $arg\"|" /etc/default/grub || true
+        if [[ " $GRUB_CMDLINE_NEW " != *" $arg "* ]]; then
+            GRUB_CMDLINE_NEW="${GRUB_CMDLINE_NEW:+$GRUB_CMDLINE_NEW }${arg}"
         fi
     done
+    if grep -q "^${GRUB_KEY}=" /etc/default/grub; then
+        if [[ "$GRUB_CMDLINE_NEW" != "$GRUB_CMDLINE_CURRENT" ]]; then
+            sudo sed -i "s|^${GRUB_KEY}=.*|${GRUB_KEY}=\"${GRUB_CMDLINE_NEW}\"|" /etc/default/grub || true
+        fi
+    else
+        echo "${GRUB_KEY}=\"${GRUB_CMDLINE_NEW}\"" | sudo tee -a /etc/default/grub > /dev/null || true
+    fi
     sudo grub2-mkconfig -o /boot/grub2/grub.cfg 2>/dev/null || true
 fi
 sudo grubby --update-kernel=ALL --args="$KERNEL_ARGS" 2>/dev/null || true
@@ -777,13 +811,19 @@ fi
 
 if [[ "$LIBVIRT_NET" == "192.168.150.0/24" ]]; then
     LIBVIRT_NET_XML="$(mktemp)"
+    LIBVIRT_NET_BAK="$(mktemp)"
     if sudo virsh net-dumpxml default --inactive 2>/dev/null > "$LIBVIRT_NET_XML" && grep -q '192\.168\.122\.' "$LIBVIRT_NET_XML"; then
-        sed -i 's/192\.168\.122\./192.168.150./g' "$LIBVIRT_NET_XML"
+        cp -f "$LIBVIRT_NET_XML" "$LIBVIRT_NET_BAK"
+        sed -i 's/192\.168\.122\./192.168.150./g' "$LIBVIRT_NET_XML" || true
+        LIBVIRT_NET_RESTORE=1
         sudo virsh net-destroy default 2>/dev/null || true
         sudo virsh net-undefine default 2>/dev/null || true
-        sudo virsh net-define "$LIBVIRT_NET_XML" || true
+        if ! sudo virsh net-define "$LIBVIRT_NET_XML"; then
+            sudo virsh net-define "$LIBVIRT_NET_BAK" || true
+        fi
+        LIBVIRT_NET_RESTORE=0
     fi
-    rm -f "$LIBVIRT_NET_XML"
+    rm -f "$LIBVIRT_NET_XML" "$LIBVIRT_NET_BAK"
 fi
 
 sudo virsh net-start default 2>/dev/null || true
@@ -863,9 +903,9 @@ if command -v zsh &>/dev/null; then
         sed -i 's|^ZSH_THEME=.*|ZSH_THEME="powerlevel10k/powerlevel10k"|' ~/.zshrc || true
         sed -i 's/^plugins=(.*/plugins=(git sudo systemd fedora dnf)/' ~/.zshrc || true
 
-        SHELL_LOCALE="${LANG:-${LC_ALL:-${LC_MESSAGES:-en_US.UTF-8}}}"
+        SHELL_LOCALE="${LC_ALL:-${LC_MESSAGES:-${LANG:-en_US.UTF-8}}}"
         if command -v locale &>/dev/null; then
-            AVAILABLE_LOCALES="$(locale -a 2>/dev/null)"
+            AVAILABLE_LOCALES="$(locale -a 2>/dev/null || true)"
             if ! grep -qiF "$SHELL_LOCALE" <<< "$AVAILABLE_LOCALES" && ! grep -qiF "${SHELL_LOCALE//UTF-8/utf8}" <<< "$AVAILABLE_LOCALES"; then
                 SHELL_LOCALE="en_US.UTF-8"
             fi
@@ -894,16 +934,16 @@ fi
 #  ETAP 4/4: CZYSZCZENIE
 # =============================================================
 show_progress 12 $TOTAL_STEPS "$MSG_PHASE_4"
-printf '\n\n' >&3
+printf '\n\n' >&3 2>/dev/null || true
 
 if [ "${#FAILED_PACKAGES[@]}" -gt 0 ]; then
     log_warn "Nie udało się zainstalować: ${FAILED_PACKAGES[*]}" "Failed to install: ${FAILED_PACKAGES[*]}"
 fi
 
 if [[ "$SCRIPT_LANG" == "pl" ]]; then
-    echo -e "${SUCCESS}[OK] KONFIGURACJA ZAKOŃCZONA SUKCESEM!${NC}" >&3
+    echo -e "${SUCCESS}[OK] KONFIGURACJA ZAKOŃCZONA SUKCESEM!${NC}" >&3 2>/dev/null || true
 else
-    echo -e "${SUCCESS}[OK] CONFIGURATION COMPLETED SUCCESSFULLY!${NC}" >&3
+    echo -e "${SUCCESS}[OK] CONFIGURATION COMPLETED SUCCESSFULLY!${NC}" >&3 2>/dev/null || true
 fi
 
 # ==========================================================
@@ -914,7 +954,7 @@ if [[ "$SCRIPT_LANG" == "pl" ]]; then
 else
     RESTART_PROMPT="Do you want to restart the system now? [Y/N]: "
 fi
-echo -en "${INFO}==> ${RESTART_PROMPT}${NC}" >&3
+echo -en "${INFO}==> ${RESTART_PROMPT}${NC}" >&3 2>/dev/null || true
 RESTART_CHOICE=""
 read -r RESTART_CHOICE < /dev/tty || RESTART_CHOICE=""
 case "$RESTART_CHOICE" in
