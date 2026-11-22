@@ -26,7 +26,6 @@ TMP_LOG="$(mktemp /tmp/fedora-install-log.XXXXXX)"
 LOG_FILE="$HOME/install_error_$(date +%Y%m%d_%H%M%S).log"
 RPM_DIR="$(mktemp -d /tmp/rpms.XXXXXX)"
 
-# Stan używany przez trap EXIT - musi istnieć PRZED jego instalacją (set -u)
 FAILED_PACKAGES=()
 SUDOERS_TMP=""
 LIBVIRT_NET_XML=""
@@ -45,9 +44,9 @@ exec >>"$TMP_LOG" 2>&1
 
 cleanup_on_exit() {
     local exit_code=$?
-    trap '' INT TERM HUP     # sprzątania nikt nie przerwie
+    trap '' INT TERM HUP
     trap - ERR
-    set +e                   # każdy krok wykona się mimo błędu poprzedniego
+    set +e
 
     [ -n "${SUDO_KEEPALIVE_PID:-}" ] && kill "$SUDO_KEEPALIVE_PID" 2>/dev/null
     declare -F restore_packagekit >/dev/null && restore_packagekit
@@ -68,11 +67,11 @@ cleanup_on_exit() {
                 fi
             fi
         elif [ "${QUIET_WARNS:-0}" -eq 0 ]; then
-            rm -f "$LOG_FILE"    # czysty przebieg - nie zostawiaj logu "error"
+            rm -f "$LOG_FILE"
         else
-            cp -f "$TMP_LOG" "$LOG_FILE"   # ciche ostrzeżenia: zachowaj log, bez komunikatu w terminalu
+            cp -f "$TMP_LOG" "$LOG_FILE"
         fi
-    } >&3 2>/dev/null          # martwy terminal (SIGHUP) nie może przerwać sprzątania
+    } >&3 2>/dev/null
     rm -f "$TMP_LOG"
 
     local do_reboot=0
@@ -93,7 +92,6 @@ log_info()  { local m; m="$(_pick_msg "$1" "$2")"; _log_write "${INFO}==> $m${NC
 log_ok()    { local m; m="$(_pick_msg "$1" "$2")"; _log_write "${SUCCESS}[OK] $m${NC}"; }
 log_err()   { local m; m="$(_pick_msg "$1" "$2")"; _log_write "${ERR}[X] ERROR: $m${NC}"; }
 log_warn()  { local m; m="$(_pick_msg "$1" "$2")"; _log_write "${WARN}[!] WARN: $m${NC}"; }
-# Ostrzeżenie tylko do logu - bez wypisywania w terminalu (nie psuje paska postępu)
 log_quiet() { local m; m="$(_pick_msg "$1" "$2")"; QUIET_WARNS=$((QUIET_WARNS + 1)); echo "[!] WARN: $m"; cp -f "$TMP_LOG" "$LOG_FILE" 2>/dev/null || true; }
 
 trap 'log_err "Błąd w linii $LINENO. Polecenie: $BASH_COMMAND" "Error at line $LINENO. Command: $BASH_COMMAND"' ERR
@@ -110,7 +108,7 @@ PACKAGEKIT_UNITS=(
 
 disable_packagekit() {
     [[ "${PACKAGEKIT_MASKED:-0}" -eq 1 ]] && return 0
-    PACKAGEKIT_MASKED=1   # przed maskowaniem: przerwanie w trakcie i tak przywróci unity
+    PACKAGEKIT_MASKED=1
     sudo systemctl stop "${PACKAGEKIT_UNITS[@]}" 2>/dev/null || true
     if command -v killall >/dev/null 2>&1; then
         sudo killall -q packagekitd 2>/dev/null || true
@@ -120,7 +118,7 @@ disable_packagekit() {
     local u state
     for u in "${PACKAGEKIT_UNITS[@]}"; do
         state="$(systemctl is-enabled "$u" 2>/dev/null || true)"
-        [[ "$state" == masked* ]] && continue     # użytkownik zamaskował wcześniej - nie ruszamy
+        [[ "$state" == masked* ]] && continue
         PACKAGEKIT_MASKED_UNITS+=("$u")
         sudo systemctl mask "$u" 2>/dev/null || true
     done
@@ -237,7 +235,7 @@ if ! command -v visudo >/dev/null 2>&1 || grep -qi "run0" <<< "$SUDO_VERSION_OUT
 fi
 
 if [[ "$USE_RUN0" -eq 1 ]]; then
-    SUDO_READY=1   # od teraz cleanup ma co sprzątać
+    SUDO_READY=1
     sudo tee "$RUN0_NOPASSWD_FILE" > /dev/null << EOF
 polkit.addRule(function(action, subject) {
     if (subject.user == "$CURRENT_USER") {
@@ -248,7 +246,7 @@ EOF
     sudo systemctl try-restart polkit 2>/dev/null || true
 else
     sudo -v
-    SUDO_READY=1   # od teraz cleanup ma co sprzątać
+    SUDO_READY=1
 
     (
         set +e
@@ -320,12 +318,10 @@ for DNF_CONF in /etc/dnf/dnf.conf /etc/dnf/dnf5.conf; do
     fi
 done
 
-# Pełny upgrade najpierw, żeby kolejne instalacje liczyły zależności względem aktualnego systemu
 wait_for_rpm_lock
 sudo dnf5 makecache --refresh || log_quiet "dnf5 makecache zakończył się błędem." "dnf5 makecache failed."
 sudo dnf5 upgrade -y --refresh || log_quiet "dnf5 upgrade zakończył się błędem." "dnf5 upgrade failed."
 
-# (6) util-linux-user dostarcza chsh w Fedorze
 install_dnf_pkgs wget2-wget curl pciutils dconf dnf-plugins-core gnupg2 xz util-linux-user
 
 GPU_TYPE="unknown"
@@ -388,11 +384,9 @@ TO_REMOVE=(
 )
 wait_for_rpm_lock
 
-# Pakiety, których dnf nie może usunąć (ani bezpośrednio, ani kaskadowo jako zależnych)
 CORE_PKGS=(plasma-desktop plasma-workspace gnome-shell gnome-session gdm sddm NetworkManager sudo cosmic-session)
 sudo mkdir -p /etc/dnf/protected.d
 printf '%s\n' "${CORE_PKGS[@]}" | sudo tee "$PROTECTED_CONF" > /dev/null
-# oraz oznacz je jako zainstalowane przez użytkownika, żeby autoremove ich nie ruszył
 for core in "${CORE_PKGS[@]}"; do
     pkg_installed "$core" && sudo dnf5 mark install "$core" || true
 done
@@ -402,9 +396,7 @@ for pkg in "${TO_REMOVE[@]}"; do
     pkg_installed "$pkg" && INSTALLED_PACKAGES+=("$pkg")
 done
 if [ "${#INSTALLED_PACKAGES[@]}" -gt 0 ]; then
-    # Jedna transakcja; jeśli którykolwiek pakiet pociągnąłby chroniony rdzeń, cała odpada
     if ! sudo dnf5 remove -y "${INSTALLED_PACKAGES[@]}"; then
-        # Fallback: pojedynczo - bezpieczne pakiety zejdą, niebezpieczne zostaną
         for pkg in "${INSTALLED_PACKAGES[@]}"; do
             pkg_installed "$pkg" || continue
             sudo dnf5 remove -y "$pkg" 2>/dev/null || true
@@ -739,9 +731,7 @@ if [ -f /etc/default/grub ]; then
     sudo sed -i 's/^GRUB_TIMEOUT=.*/GRUB_TIMEOUT=0/' /etc/default/grub || true
     GRUB_CMDLINE_LINES="$(grep -E '^GRUB_CMDLINE_LINUX(_DEFAULT)?=' /etc/default/grub || true)"
     for arg in $KERNEL_ARGS; do
-        # argument już jest w którejkolwiek z linii - nie dubluj
         [[ " ${GRUB_CMDLINE_LINES//\"/ } " == *" $arg "* ]] && continue
-        # dopisz tylko w JEDNEJ linii: preferuj GRUB_CMDLINE_LINUX (Fedora), inaczej _DEFAULT
         if grep -q '^GRUB_CMDLINE_LINUX="' /etc/default/grub; then
             sudo sed -i "s|^\(GRUB_CMDLINE_LINUX=\"[^\"]*\)\"|\1 $arg\"|" /etc/default/grub || true
         else
