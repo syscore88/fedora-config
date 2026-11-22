@@ -7,8 +7,7 @@ set -Eeuo pipefail
 export PATH="/usr/sbin:/sbin:$PATH"
 
 detect_system_lang() {
-    local sys_lang="${LANG:-}"
-    [[ -z "$sys_lang" ]] && sys_lang="${LC_ALL:-${LC_MESSAGES:-}}"
+    local sys_lang="${LC_ALL:-${LC_MESSAGES:-${LANG:-}}}"
     if [[ "$sys_lang" == pl* ]]; then
         echo "pl"
     else
@@ -25,39 +24,68 @@ NC='\033[0m'
 
 TMP_LOG="$(mktemp /tmp/fedora-install-log.XXXXXX)"
 LOG_FILE="$HOME/install_error_$(date +%Y%m%d_%H%M%S).log"
-RPM_DIR="/tmp/rpms_$$"
+RPM_DIR="$(mktemp -d /tmp/rpms.XXXXXX)"
+
+# Stan używany przez trap EXIT - musi istnieć PRZED jego instalacją (set -u)
+FAILED_PACKAGES=()
+SUDOERS_TMP=""
+LIBVIRT_NET_XML=""
+LSFG_TMP=""
+BRAVE_GNUPGHOME=""
+SUDO_READY=0
+SUDO_KEEPALIVE_PID=""
+QUIET_WARNS=0
+PACKAGEKIT_MASKED_UNITS=()
+RUN0_NOPASSWD_FILE="/etc/polkit-1/rules.d/51-run0-nopasswd.rules"
+TEMP_SUDOERS="/etc/sudoers.d/99-temp-installer"
+PROTECTED_CONF="/etc/dnf/protected.d/99-installer-core.conf"
 
 exec 3>&1
 exec >>"$TMP_LOG" 2>&1
 
 cleanup_on_exit() {
     local exit_code=$?
-    declare -F restore_packagekit >/dev/null && restore_packagekit || true
-    [ -n "${SUDO_KEEPALIVE_PID:-}" ] && kill "$SUDO_KEEPALIVE_PID" 2>/dev/null || true
-    printf '\033[?7h' >&3
-    if [ "$exit_code" -ne 0 ] || [ "${#FAILED_PACKAGES[@]}" -gt 0 ]; then
-        echo -e "\n" >&3
-        cp -f "$TMP_LOG" "$LOG_FILE" 2>/dev/null || true
-        if [ "$exit_code" -ne 0 ]; then
-            if [[ "$SCRIPT_LANG" == "pl" ]]; then
-                echo -e "${ERR}[X] Wystąpił błąd (kod: $exit_code). Szczegółowy log zapisano w: $LOG_FILE${NC}" >&3
-            else
-                echo -e "${ERR}[X] An error occurred (code: $exit_code). Detailed log saved to: $LOG_FILE${NC}" >&3
+    trap '' INT TERM HUP     # sprzątania nikt nie przerwie
+    trap - ERR
+    set +e                   # każdy krok wykona się mimo błędu poprzedniego
+
+    [ -n "${SUDO_KEEPALIVE_PID:-}" ] && kill "$SUDO_KEEPALIVE_PID" 2>/dev/null
+    declare -F restore_packagekit >/dev/null && restore_packagekit
+
+    rm -f "$SUDOERS_TMP" "$LIBVIRT_NET_XML" /tmp/discord.rpm
+    rm -rf "$RPM_DIR" "$LSFG_TMP" "$BRAVE_GNUPGHOME"
+
+    {
+        printf '\033[?7h'
+        if [ "$exit_code" -ne 0 ] || [ "${#FAILED_PACKAGES[@]}" -gt 0 ]; then
+            echo -e "\n"
+            cp -f "$TMP_LOG" "$LOG_FILE"
+            if [ "$exit_code" -ne 0 ]; then
+                if [[ "$SCRIPT_LANG" == "pl" ]]; then
+                    echo -e "${ERR}[X] Wystąpił błąd (kod: $exit_code). Szczegółowy log zapisano w: $LOG_FILE${NC}"
+                else
+                    echo -e "${ERR}[X] An error occurred (code: $exit_code). Detailed log saved to: $LOG_FILE${NC}"
+                fi
             fi
+        elif [ "${QUIET_WARNS:-0}" -eq 0 ]; then
+            rm -f "$LOG_FILE"    # czysty przebieg - nie zostawiaj logu "error"
+        else
+            cp -f "$TMP_LOG" "$LOG_FILE"   # ciche ostrzeżenia: zachowaj log, bez komunikatu w terminalu
         fi
-    fi
-    rm -f "$TMP_LOG" /tmp/discord.rpm
-    rm -rf "$RPM_DIR"
+    } >&3 2>/dev/null          # martwy terminal (SIGHUP) nie może przerwać sprzątania
+    rm -f "$TMP_LOG"
+
     local do_reboot=0
     [ "$exit_code" -eq 0 ] && [ "${DO_REBOOT:-0}" = "1" ] && do_reboot=1
     if [ "${SUDO_READY:-0}" = "1" ]; then
-        sudo sh -c 'rm -f "$1" "$2"; systemctl try-restart polkit 2>/dev/null; if [ "$3" = 1 ]; then systemctl reboot; fi' _ \
-            "${RUN0_NOPASSWD_FILE:-/etc/polkit-1/rules.d/51-run0-nopasswd.rules}" \
-            "/etc/sudoers.d/99-temp-installer" \
-            "$do_reboot"
+        sudo sh -c 'rm -f "$1" "$2" "$3"; systemctl try-restart polkit 2>/dev/null; if [ "$4" = 1 ]; then systemctl reboot; fi' _ \
+            "$RUN0_NOPASSWD_FILE" "$TEMP_SUDOERS" "$PROTECTED_CONF" "$do_reboot"
     fi
 }
 trap cleanup_on_exit EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+trap 'exit 129' HUP
 
 _pick_msg() { [[ "$SCRIPT_LANG" == "pl" ]] && echo "$1" || echo "$2"; }
 _log_write() { printf "\r\033[K" >&3; echo -e "$1" >&3; echo -e "$1"; cp -f "$TMP_LOG" "$LOG_FILE" 2>/dev/null || true; }
@@ -65,6 +93,8 @@ log_info()  { local m; m="$(_pick_msg "$1" "$2")"; _log_write "${INFO}==> $m${NC
 log_ok()    { local m; m="$(_pick_msg "$1" "$2")"; _log_write "${SUCCESS}[OK] $m${NC}"; }
 log_err()   { local m; m="$(_pick_msg "$1" "$2")"; _log_write "${ERR}[X] ERROR: $m${NC}"; }
 log_warn()  { local m; m="$(_pick_msg "$1" "$2")"; _log_write "${WARN}[!] WARN: $m${NC}"; }
+# Ostrzeżenie tylko do logu - bez wypisywania w terminalu (nie psuje paska postępu)
+log_quiet() { local m; m="$(_pick_msg "$1" "$2")"; QUIET_WARNS=$((QUIET_WARNS + 1)); echo "[!] WARN: $m"; cp -f "$TMP_LOG" "$LOG_FILE" 2>/dev/null || true; }
 
 trap 'log_err "Błąd w linii $LINENO. Polecenie: $BASH_COMMAND" "Error at line $LINENO. Command: $BASH_COMMAND"' ERR
 
@@ -80,19 +110,27 @@ PACKAGEKIT_UNITS=(
 
 disable_packagekit() {
     [[ "${PACKAGEKIT_MASKED:-0}" -eq 1 ]] && return 0
+    PACKAGEKIT_MASKED=1   # przed maskowaniem: przerwanie w trakcie i tak przywróci unity
     sudo systemctl stop "${PACKAGEKIT_UNITS[@]}" 2>/dev/null || true
     if command -v killall >/dev/null 2>&1; then
         sudo killall -q packagekitd 2>/dev/null || true
     else
         sudo pkill -x packagekitd 2>/dev/null || true
     fi
-    sudo systemctl mask "${PACKAGEKIT_UNITS[@]}" 2>/dev/null || true
-    PACKAGEKIT_MASKED=1
+    local u state
+    for u in "${PACKAGEKIT_UNITS[@]}"; do
+        state="$(systemctl is-enabled "$u" 2>/dev/null || true)"
+        [[ "$state" == masked* ]] && continue     # użytkownik zamaskował wcześniej - nie ruszamy
+        PACKAGEKIT_MASKED_UNITS+=("$u")
+        sudo systemctl mask "$u" 2>/dev/null || true
+    done
 }
 
 restore_packagekit() {
     [[ "${PACKAGEKIT_MASKED:-0}" -eq 1 ]] || return 0
-    sudo systemctl unmask "${PACKAGEKIT_UNITS[@]}" 2>/dev/null || true
+    if [ "${#PACKAGEKIT_MASKED_UNITS[@]}" -gt 0 ]; then
+        sudo systemctl unmask "${PACKAGEKIT_MASKED_UNITS[@]}" 2>/dev/null || true
+    fi
     PACKAGEKIT_MASKED=0
 }
 
@@ -177,7 +215,6 @@ else
 fi
 
 TOTAL_STEPS=12
-FAILED_PACKAGES=()
 
 if [[ "$EUID" -eq 0 ]]; then
     if [[ "$SCRIPT_LANG" == "pl" ]]; then
@@ -193,14 +230,14 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &> /dev/null && pwd)"
 
 printf '\033[?7h\n' >&3
 
-RUN0_NOPASSWD_FILE="/etc/polkit-1/rules.d/51-run0-nopasswd.rules"
 USE_RUN0=0
-if ! command -v visudo >/dev/null 2>&1 || sudo --version 2>/dev/null | grep -qi "run0"; then
+SUDO_VERSION_OUT="$(sudo --version 2>/dev/null || true)"
+if ! command -v visudo >/dev/null 2>&1 || grep -qi "run0" <<< "$SUDO_VERSION_OUT"; then
     USE_RUN0=1
 fi
 
-SUDO_READY=0
 if [[ "$USE_RUN0" -eq 1 ]]; then
+    SUDO_READY=1   # od teraz cleanup ma co sprzątać
     sudo tee "$RUN0_NOPASSWD_FILE" > /dev/null << EOF
 polkit.addRule(function(action, subject) {
     if (subject.user == "$CURRENT_USER") {
@@ -209,9 +246,9 @@ polkit.addRule(function(action, subject) {
 });
 EOF
     sudo systemctl try-restart polkit 2>/dev/null || true
-    SUDO_READY=1
 else
     sudo -v
+    SUDO_READY=1   # od teraz cleanup ma co sprzątać
 
     (
         set +e
@@ -227,9 +264,7 @@ else
     SUDOERS_TMP="$(mktemp)"
     echo "$CURRENT_USER ALL=(ALL) NOPASSWD: ALL" > "$SUDOERS_TMP"
     if sudo visudo -cf "$SUDOERS_TMP" &>/dev/null; then
-        sudo install -m 0440 -o root -g root "$SUDOERS_TMP" /etc/sudoers.d/99-temp-installer
-        echo "%wheel ALL=(ALL) NOPASSWD: ALL" > "$SUDOERS_TMP"
-        sudo visudo -cf "$SUDOERS_TMP" &>/dev/null && sudo install -m 0440 -o root -g root "$SUDOERS_TMP" /etc/sudoers.d/99_nopasswd || true
+        sudo install -m 0440 -o root -g root "$SUDOERS_TMP" "$TEMP_SUDOERS"
     else
         rm -f "$SUDOERS_TMP"
         if [[ "$SCRIPT_LANG" == "pl" ]]; then
@@ -240,7 +275,7 @@ else
         exit 1
     fi
     rm -f "$SUDOERS_TMP"
-    SUDO_READY=1
+    SUDOERS_TMP=""
 fi
 
 printf '\033[?7l' >&3
@@ -267,7 +302,7 @@ install_dnf_pkgs() {
             valid_pkgs+=("$arg")
         elif pkg_installed "$arg"; then
             continue
-        elif dnf5 repoquery -q "$arg" 2>/dev/null | grep -q .; then
+        elif [[ -n "$(dnf5 repoquery -q "$arg" 2>/dev/null || true)" ]]; then
             valid_pkgs+=("$arg")
         else
             FAILED_PACKAGES+=("$arg")
@@ -285,7 +320,13 @@ for DNF_CONF in /etc/dnf/dnf.conf /etc/dnf/dnf5.conf; do
     fi
 done
 
-install_dnf_pkgs wget2-wget curl pciutils dconf dnf-plugins-core gnupg2 xz
+# Pełny upgrade najpierw, żeby kolejne instalacje liczyły zależności względem aktualnego systemu
+wait_for_rpm_lock
+sudo dnf5 makecache --refresh || log_quiet "dnf5 makecache zakończył się błędem." "dnf5 makecache failed."
+sudo dnf5 upgrade -y --refresh || log_quiet "dnf5 upgrade zakończył się błędem." "dnf5 upgrade failed."
+
+# (6) util-linux-user dostarcza chsh w Fedorze
+install_dnf_pkgs wget2-wget curl pciutils dconf dnf-plugins-core gnupg2 xz util-linux-user
 
 GPU_TYPE="unknown"
 HYBRID_GPU=false
@@ -298,9 +339,9 @@ GPU_UNKNOWN_PKGS=(
 if command -v lspci &>/dev/null; then
     GPU_INFO=$(lspci | grep -i -E "vga|3d|display" || true)
 
-    echo "$GPU_INFO" | grep -qi "nvidia"      && GPU_VENDORS+=("nvidia")
-    echo "$GPU_INFO" | grep -qi -E "\b(amd|ati)\b|advanced micro devices|radeon" && GPU_VENDORS+=("amd")
-    echo "$GPU_INFO" | grep -qi "intel"       && GPU_VENDORS+=("intel")
+    grep -qi "nvidia" <<< "$GPU_INFO" && GPU_VENDORS+=("nvidia")
+    grep -qi -E "\b(amd|ati)\b|advanced micro devices|radeon" <<< "$GPU_INFO" && GPU_VENDORS+=("amd")
+    grep -qi "intel" <<< "$GPU_INFO" && GPU_VENDORS+=("intel")
 
     TOTAL_KNOWN=${#GPU_VENDORS[@]}
 
@@ -346,10 +387,39 @@ TO_REMOVE=(
     gnome-contacts gnome-maps gnome-weather transmission-gtk
 )
 wait_for_rpm_lock
-for pkg in "${TO_REMOVE[@]}"; do
-    sudo dnf5 remove -y "$pkg" 2>/dev/null || true
+
+# Pakiety, których dnf nie może usunąć (ani bezpośrednio, ani kaskadowo jako zależnych)
+CORE_PKGS=(plasma-desktop plasma-workspace gnome-shell gnome-session gdm sddm NetworkManager sudo cosmic-session)
+sudo mkdir -p /etc/dnf/protected.d
+printf '%s\n' "${CORE_PKGS[@]}" | sudo tee "$PROTECTED_CONF" > /dev/null
+# oraz oznacz je jako zainstalowane przez użytkownika, żeby autoremove ich nie ruszył
+for core in "${CORE_PKGS[@]}"; do
+    pkg_installed "$core" && sudo dnf5 mark install "$core" || true
 done
-sudo dnf5 autoremove -y || true
+
+INSTALLED_PACKAGES=()
+for pkg in "${TO_REMOVE[@]}"; do
+    pkg_installed "$pkg" && INSTALLED_PACKAGES+=("$pkg")
+done
+if [ "${#INSTALLED_PACKAGES[@]}" -gt 0 ]; then
+    # Jedna transakcja; jeśli którykolwiek pakiet pociągnąłby chroniony rdzeń, cała odpada
+    if ! sudo dnf5 remove -y "${INSTALLED_PACKAGES[@]}"; then
+        # Fallback: pojedynczo - bezpieczne pakiety zejdą, niebezpieczne zostaną
+        for pkg in "${INSTALLED_PACKAGES[@]}"; do
+            pkg_installed "$pkg" || continue
+            sudo dnf5 remove -y "$pkg" 2>/dev/null || true
+        done
+        STILL_INSTALLED=()
+        for pkg in "${INSTALLED_PACKAGES[@]}"; do
+            pkg_installed "$pkg" && STILL_INSTALLED+=("$pkg")
+        done
+        if [ "${#STILL_INSTALLED[@]}" -gt 0 ]; then
+            log_quiet "Nie udało się usunąć: ${STILL_INSTALLED[*]}" "Could not remove: ${STILL_INSTALLED[*]}"
+        fi
+    fi
+fi
+sudo dnf5 autoremove -y || log_quiet "dnf5 autoremove pominięty/nieudany (ochrona pakietów pulpitu)." "dnf5 autoremove skipped/failed (desktop package protection)."
+sudo rm -f "$PROTECTED_CONF"
 
 if pkg_installed plasma-desktop || pkg_installed plasma-workspace; then
     mkdir -p ~/.config
@@ -428,10 +498,12 @@ sudo mkdir -p /etc/NetworkManager/conf.d
 echo -e "[main]\ndns=default\nrc-manager=symlink" | sudo tee /etc/NetworkManager/conf.d/dns.conf > /dev/null
 echo -e "[global-dns]\n\n[global-dns-domain-*]\nservers=1.1.1.2,1.0.0.2,2606:4700:4700::1112,2606:4700:4700::1002" | sudo tee /etc/NetworkManager/conf.d/global-dns.conf > /dev/null
 
-ACTIVE_CONN=$(nmcli -t -f NAME,DEVICE connection show --active 2>/dev/null | grep -v "^lo" | head -n 1 | cut -d: -f1 || true)
+sudo nmcli general reload 2>/dev/null || sudo systemctl reload NetworkManager 2>/dev/null || true
+ACTIVE_CONN="$(nmcli -t -f UUID,DEVICE connection show --active 2>/dev/null \
+    | awk -F: '$2 != "" && $2 != "lo" && $2 !~ /^(virbr|docker|br-|veth|tun|tap)/ {print $1; exit}' || true)"
 if [[ -n "$ACTIVE_CONN" ]]; then
-    sudo nmcli connection modify "$ACTIVE_CONN" ipv4.dns "1.1.1.2,1.0.0.2" ipv6.dns "2606:4700:4700::1112,2606:4700:4700::1002"
-    sudo nmcli connection up "$ACTIVE_CONN" || true
+    sudo nmcli connection modify uuid "$ACTIVE_CONN" ipv4.dns "1.1.1.2,1.0.0.2" ipv6.dns "2606:4700:4700::1112,2606:4700:4700::1002" || true
+    sudo nmcli connection up uuid "$ACTIVE_CONN" || true
 fi
 
 show_progress 3 $TOTAL_STEPS "$MSG_PHASE_1"
@@ -440,10 +512,6 @@ show_progress 3 $TOTAL_STEPS "$MSG_PHASE_1"
 #  ETAP 2/4: INSTALACJA
 # ==========================================================
 show_progress 4 $TOTAL_STEPS "$MSG_PHASE_2"
-
-wait_for_rpm_lock
-sudo dnf5 makecache --refresh || true
-sudo dnf5 upgrade -y --refresh || true
 
 show_progress 5 $TOTAL_STEPS "$MSG_PHASE_2"
 
@@ -535,12 +603,12 @@ download_rpm() { wget -q --timeout=30 -O "$3" "$2" || { rm -f "$3"; FAILED_PACKA
 wait_for_rpm_lock
 if pkg_installed discord; then
     :
-elif dnf5 repoquery -q discord 2>/dev/null | grep -q .; then
+elif [[ -n "$(dnf5 repoquery -q discord 2>/dev/null || true)" ]]; then
     install_dnf_pkgs discord
 else
     dest="$RPM_DIR/discord.rpm"
     if wget -q --user-agent="Mozilla/5.0" "https://discord.com/api/download?platform=linux&format=rpm" -O "$dest"; then
-        if ! file "$dest" | grep -q "RPM"; then
+        if ! grep -q "RPM" <<< "$(file "$dest" 2>/dev/null)"; then
             rm -f "$dest"
             FAILED_PACKAGES+=("discord")
         fi
@@ -587,8 +655,8 @@ LSFG_URLS=()
 if LSFG_HTML="$(curl -fsSL --retry 3 --retry-delay 2 -A "$LSFG_UA" -e "$LSFG_BASE/" "$LSFG_BASE/" 2>/dev/null)"; then
     mapfile -t LSFG_CANDIDATES < <(
         {
-            printf '%s' "$LSFG_HTML" | grep -oiE '(href|src)=["'\''][^"'\'']*lsfg-vk-[0-9]+(\.[0-9]+)*(-[A-Za-z0-9._-]+)?\.tar\.xz["'\'']' | sed -E 's/^(href|src)=["'\'']//I; s/["'\'']$//'
-            printf '%s' "$LSFG_HTML" | grep -oiE '(https?://[^"'\'' <>[:space:]]+/)?lsfg-vk-[0-9]+(\.[0-9]+)*(-[A-Za-z0-9._-]+)?\.tar\.xz'
+            printf '%s' "$LSFG_HTML" | grep -oiE '(href|src)=["'\''][^"'\'']*lsfg-vk-[0-9]+(\.[0-9]+)*(-[A-Za-z0-9._-]+)?\.tar\.xz["'\'']' | sed -E 's/^(href|src)=["'\'']//I; s/["'\'']$//' || true
+            printf '%s' "$LSFG_HTML" | grep -oiE '(https?://[^"'\'' <>[:space:]]+/)?lsfg-vk-[0-9]+(\.[0-9]+)*(-[A-Za-z0-9._-]+)?\.tar\.xz' || true
         } | awk 'NF && !seen[$0]++' | sort -rV || true
     )
     for c in "${LSFG_CANDIDATES[@]}"; do
@@ -654,13 +722,31 @@ show_progress 9 $TOTAL_STEPS "$MSG_PHASE_3"
 
 restore_packagekit
 
+NVIDIA_DRIVER_PRESENT=0
+if [[ $GPU_TYPE == *"nvidia"* ]]; then
+    if modinfo nvidia &>/dev/null || pkg_installed akmod-nvidia || [[ -n "$(rpm -qa 'kmod-nvidia*' 2>/dev/null)" ]]; then
+        NVIDIA_DRIVER_PRESENT=1
+    else
+        log_quiet "Wykryto GPU NVIDIA, ale brak sterownika jądra (akmod-nvidia) - pomijam nvidia_drm.modeset i force_drivers." \
+                  "NVIDIA GPU detected but no kernel driver (akmod-nvidia) - skipping nvidia_drm.modeset and force_drivers."
+    fi
+fi
+
 KERNEL_ARGS="mitigations=off split_lock_detect=off"
-[[ $GPU_TYPE == *"nvidia"* ]] && KERNEL_ARGS="$KERNEL_ARGS nvidia_drm.modeset=1"
+[[ "$NVIDIA_DRIVER_PRESENT" -eq 1 ]] && KERNEL_ARGS="$KERNEL_ARGS nvidia_drm.modeset=1"
 
 if [ -f /etc/default/grub ]; then
     sudo sed -i 's/^GRUB_TIMEOUT=.*/GRUB_TIMEOUT=0/' /etc/default/grub || true
+    GRUB_CMDLINE_LINES="$(grep -E '^GRUB_CMDLINE_LINUX(_DEFAULT)?=' /etc/default/grub || true)"
     for arg in $KERNEL_ARGS; do
-        grep -q "$arg" /etc/default/grub || sudo sed -i "s/^\(GRUB_CMDLINE_LINUX=\"[^\"]*\)\"/\1 $arg\"/; s/^\(GRUB_CMDLINE_LINUX_DEFAULT=\"[^\"]*\)\"/\1 $arg\"/" /etc/default/grub || true
+        # argument już jest w którejkolwiek z linii - nie dubluj
+        [[ " ${GRUB_CMDLINE_LINES//\"/ } " == *" $arg "* ]] && continue
+        # dopisz tylko w JEDNEJ linii: preferuj GRUB_CMDLINE_LINUX (Fedora), inaczej _DEFAULT
+        if grep -q '^GRUB_CMDLINE_LINUX="' /etc/default/grub; then
+            sudo sed -i "s|^\(GRUB_CMDLINE_LINUX=\"[^\"]*\)\"|\1 $arg\"|" /etc/default/grub || true
+        else
+            sudo sed -i "s|^\(GRUB_CMDLINE_LINUX_DEFAULT=\"[^\"]*\)\"|\1 $arg\"|" /etc/default/grub || true
+        fi
     done
     sudo grub2-mkconfig -o /boot/grub2/grub.cfg 2>/dev/null || true
 fi
@@ -670,7 +756,7 @@ show_progress 10 $TOTAL_STEPS "$MSG_PHASE_3"
 
 DRACUT_CONF="/etc/dracut.conf.d/90-gpu.conf"
 FORCE_DRIVERS=""
-if [[ $GPU_TYPE == *"nvidia"* ]]; then
+if [[ "$NVIDIA_DRIVER_PRESENT" -eq 1 ]]; then
     FORCE_DRIVERS+=" nvidia nvidia_modeset nvidia_uvm nvidia_drm"
 fi
 if [[ $GPU_TYPE == *"amd"* ]]; then
@@ -694,7 +780,7 @@ sudo systemctl enable --now bluetooth || true
 echo "options btusb enable_autosuspend=0" | sudo tee /etc/modprobe.d/btusb.conf > /dev/null
 
 for svc in libvirtd virtqemud; do
-    if systemctl list-unit-files "${svc}.service" 2>/dev/null | grep -q "$svc"; then
+    if grep -q "$svc" <<< "$(systemctl list-unit-files "${svc}.service" 2>/dev/null)"; then
         sudo systemctl enable --now "${svc}.service" || true
         break
     fi
@@ -734,7 +820,7 @@ if command -v firewall-cmd &>/dev/null; then
 fi
 
 if command -v dconf &>/dev/null; then
-    dconf load /org/virt-manager/virt-manager/ <<'DCONFEOF'
+    dconf load /org/virt-manager/virt-manager/ <<'DCONFEOF' || true
 [/]
 manager-window-height=297
 manager-window-width=478
@@ -772,7 +858,7 @@ DCONFEOF
 fi
 
 sudo mkdir -p /etc/systemd/system.conf.d
-printf '[Manager]\nDefaultTimeoutStopSec=3s\nDefaultTimeoutStartSec=3s\n' | sudo tee /etc/systemd/system.conf.d/10-timeouts.conf >/dev/null
+printf '[Manager]\nDefaultTimeoutStopSec=3s\n' | sudo tee /etc/systemd/system.conf.d/10-timeouts.conf >/dev/null
 sudo systemctl disable NetworkManager-wait-online.service 2>/dev/null || true
 sudo journalctl --vacuum-time=2d || true
 
@@ -800,7 +886,7 @@ if command -v zsh &>/dev/null; then
         SHELL_LOCALE="${LANG:-${LC_ALL:-${LC_MESSAGES:-en_US.UTF-8}}}"
         if command -v locale &>/dev/null; then
             AVAILABLE_LOCALES="$(locale -a 2>/dev/null)"
-            if ! echo "$AVAILABLE_LOCALES" | grep -qiF "$SHELL_LOCALE" && ! echo "$AVAILABLE_LOCALES" | grep -qiF "$(echo "$SHELL_LOCALE" | sed 's/UTF-8/utf8/')"; then
+            if ! grep -qiF "$SHELL_LOCALE" <<< "$AVAILABLE_LOCALES" && ! grep -qiF "${SHELL_LOCALE//UTF-8/utf8}" <<< "$AVAILABLE_LOCALES"; then
                 SHELL_LOCALE="en_US.UTF-8"
             fi
         fi
@@ -849,7 +935,8 @@ else
     RESTART_PROMPT="Do you want to restart the system now? [Y/N]: "
 fi
 echo -en "${INFO}==> ${RESTART_PROMPT}${NC}" >&3
-read -r RESTART_CHOICE < /dev/tty
+RESTART_CHOICE=""
+read -r RESTART_CHOICE < /dev/tty || RESTART_CHOICE=""
 case "$RESTART_CHOICE" in
     [YyTt]*)
         DO_REBOOT=1
