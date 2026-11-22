@@ -540,7 +540,7 @@ PKGS_CODECS=(
 
 for vendor in "${GPU_VENDORS[@]}"; do
     case "$vendor" in
-        "nvidia") SYSTEM_PKGS+=(libva-nvidia-driver.x86_64 libva-nvidia-driver.i686 xorg-x11-drv-nvidia-cuda-libs.x86_64 xorg-x11-drv-nvidia-cuda-libs.i686) ;;
+        "nvidia") SYSTEM_PKGS+=(akmod-nvidia-open kernel-devel xorg-x11-drv-nvidia-libs.x86_64 xorg-x11-drv-nvidia-libs.i686 libva-nvidia-driver.x86_64 libva-nvidia-driver.i686 xorg-x11-drv-nvidia-cuda-libs.x86_64 xorg-x11-drv-nvidia-cuda-libs.i686) ;;
         "amd")    SYSTEM_PKGS+=(mesa-dri-drivers.x86_64 mesa-dri-drivers.i686 mesa-vulkan-drivers.x86_64 mesa-vulkan-drivers.i686 mesa-libGL.x86_64 mesa-libGL.i686 vulkan-headers vulkan-loader-devel vulkan-tools mesa-va-drivers-freeworld.x86_64 mesa-va-drivers-freeworld.i686 mesa-libOpenCL.x86_64) ;;
         "intel")  SYSTEM_PKGS+=(mesa-dri-drivers.x86_64 mesa-dri-drivers.i686 mesa-vulkan-drivers.x86_64 mesa-vulkan-drivers.i686 mesa-libGL.x86_64 mesa-libGL.i686 vulkan-headers vulkan-loader-devel vulkan-tools intel-media-driver intel-compute-runtime) ;;
     esac
@@ -714,18 +714,8 @@ show_progress 9 $TOTAL_STEPS "$MSG_PHASE_3"
 
 restore_packagekit
 
-NVIDIA_DRIVER_PRESENT=0
-if [[ $GPU_TYPE == *"nvidia"* ]]; then
-    if modinfo nvidia &>/dev/null || pkg_installed akmod-nvidia || [[ -n "$(rpm -qa 'kmod-nvidia*' 2>/dev/null)" ]]; then
-        NVIDIA_DRIVER_PRESENT=1
-    else
-        log_quiet "Wykryto GPU NVIDIA, ale brak sterownika jądra (akmod-nvidia) - pomijam nvidia_drm.modeset i force_drivers." \
-                  "NVIDIA GPU detected but no kernel driver (akmod-nvidia) - skipping nvidia_drm.modeset and force_drivers."
-    fi
-fi
-
 KERNEL_ARGS="mitigations=off split_lock_detect=off"
-[[ "$NVIDIA_DRIVER_PRESENT" -eq 1 ]] && KERNEL_ARGS="$KERNEL_ARGS nvidia_drm.modeset=1"
+[[ $GPU_TYPE == *"nvidia"* ]] && KERNEL_ARGS="$KERNEL_ARGS nvidia_drm.modeset=1"
 
 if [ -f /etc/default/grub ]; then
     sudo sed -i 's/^GRUB_TIMEOUT=.*/GRUB_TIMEOUT=0/' /etc/default/grub || true
@@ -746,7 +736,7 @@ show_progress 10 $TOTAL_STEPS "$MSG_PHASE_3"
 
 DRACUT_CONF="/etc/dracut.conf.d/90-gpu.conf"
 FORCE_DRIVERS=""
-if [[ "$NVIDIA_DRIVER_PRESENT" -eq 1 ]]; then
+if [[ $GPU_TYPE == *"nvidia"* ]]; then
     FORCE_DRIVERS+=" nvidia nvidia_modeset nvidia_uvm nvidia_drm"
 fi
 if [[ $GPU_TYPE == *"amd"* ]]; then
