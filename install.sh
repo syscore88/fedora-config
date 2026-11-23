@@ -338,7 +338,7 @@ wait_for_rpm_lock
 sudo dnf5 makecache --refresh || log_quiet "dnf5 makecache zakończył się błędem." "dnf5 makecache failed."
 sudo dnf5 upgrade -y --refresh || log_quiet "dnf5 upgrade zakończył się błędem." "dnf5 upgrade failed."
 
-install_dnf_pkgs wget2-wget curl pciutils dconf dnf-plugins-core gnupg2 xz util-linux-user
+install_dnf_pkgs wget2-wget curl pciutils dconf dnf-plugins-core gnupg2 xz
 
 GPU_TYPE="unknown"
 HYBRID_GPU=false
