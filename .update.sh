@@ -252,7 +252,7 @@ if command -v flatpak &> /dev/null; then
     ALL_REMOTES=$(flatpak remotes --system --columns=name 2>/dev/null)
     while IFS= read -r remote; do
         if [ -n "$remote" ] && [ "$remote" != "flathub" ] && [ "$remote" != "fedora" ] && ! echo "$USED_REMOTES" | grep -qxF -- "$remote"; then
-            "$ELEVATE" flatpak remote-delete --system --force "$remote" 2>/dev/null
+            "$ELEVATE" flatpak remote-delete --system --force "$remote" </dev/null 2>/dev/null
         fi
     done <<< "$ALL_REMOTES"
 
