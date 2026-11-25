@@ -921,7 +921,6 @@ if command -v zsh &>/dev/null; then
                 echo ""
                 echo "export LC_ALL=${SHELL_LOCALE}"
                 echo "export LC_MESSAGES=${SHELL_LOCALE}"
-                echo "fastfetch"
             } >> ~/.zshrc
         fi
 
