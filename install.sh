@@ -532,7 +532,7 @@ SYSTEM_PKGS=(
     dconf-editor hunspell-pl fastfetch unrar git mc exfatprogs ntfs-3g vim-enhanced
     os-prober android-tools fsarchiver inxi pv rsync python3-defusedxml ghostwriter
     python3-packaging python3-pip pipx 7zip zenity innoextract makeself
-    bleachbit timeshift vlc vlc-plugins-extra xhost
+    bleachbit timeshift vlc vlc-plugins-extra
     audacity gimp gmic gmic-gimp mixxx kdenlive soundconverter HandBrake-gui
     telegram-desktop qbittorrent qmmp pkgconf-pkg-config gnome-disk-utility
     wine winetricks gamemode gamescope mangohud
