@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=BleachBit (Root)
+Comment=Uruchom BleachBit z uprawnieniami administratora
+Exec=/bin/sh -c "bash \"$HOME/.config/bleachbit/bleachbit-root.sh\""
+Icon=bleachbit
+Terminal=false
+Type=Application
+Categories=System;
