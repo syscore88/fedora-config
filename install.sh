@@ -539,6 +539,7 @@ SYSTEM_PKGS=(
     cmake meson ninja-build python3-tqdm just gcc-c++ clang llvm mesa-libGL-devel
     bluez-tools zsh zsh-syntax-highlighting zsh-autosuggestions
     @development-tools @c-development gcc make flatpak
+    kernel-devel kernel-devel-matched kernel-headers elfutils-libelf-devel
     cdemu-daemon cdemu-client gcdemu
     virt-manager qemu-kvm qemu-img libvirt libvirt-daemon-kvm
     qt6-qtbase qt6-qtdeclarative
@@ -560,11 +561,16 @@ PKGS_CODECS=(
 
 for vendor in "${GPU_VENDORS[@]}"; do
     case "$vendor" in
-        "nvidia") SYSTEM_PKGS+=(akmod-nvidia-open kernel-devel xorg-x11-drv-nvidia-libs.x86_64 xorg-x11-drv-nvidia-libs.i686 libva-nvidia-driver.x86_64 libva-nvidia-driver.i686 xorg-x11-drv-nvidia-cuda-libs.x86_64 xorg-x11-drv-nvidia-cuda-libs.i686) ;;
+        "nvidia") SYSTEM_PKGS+=(akmod-nvidia-open xorg-x11-drv-nvidia-libs.x86_64 xorg-x11-drv-nvidia-libs.i686 libva-nvidia-driver.x86_64 libva-nvidia-driver.i686 xorg-x11-drv-nvidia-cuda-libs.x86_64 xorg-x11-drv-nvidia-cuda-libs.i686) ;;
         "amd")    SYSTEM_PKGS+=(mesa-dri-drivers.x86_64 mesa-dri-drivers.i686 mesa-vulkan-drivers.x86_64 mesa-vulkan-drivers.i686 mesa-libGL.x86_64 mesa-libGL.i686 vulkan-headers vulkan-loader-devel vulkan-tools mesa-va-drivers-freeworld.x86_64 mesa-va-drivers-freeworld.i686 mesa-libOpenCL.x86_64) ;;
         "intel")  SYSTEM_PKGS+=(mesa-dri-drivers.x86_64 mesa-dri-drivers.i686 mesa-vulkan-drivers.x86_64 mesa-vulkan-drivers.i686 mesa-libGL.x86_64 mesa-libGL.i686 vulkan-headers vulkan-loader-devel vulkan-tools intel-media-driver intel-compute-runtime) ;;
     esac
 done
+
+wait_for_rpm_lock
+if ! pkg_installed "kernel-devel-$(uname -r)" && [[ -n "$(dnf5 repoquery -q "kernel-devel-$(uname -r)" 2>/dev/null || true)" ]]; then
+    SYSTEM_PKGS+=("kernel-devel-$(uname -r)")
+fi
 
 if [ "${#SYSTEM_PKGS[@]}" -gt 0 ]; then
     readarray -t SYSTEM_PKGS < <(printf '%s\n' "${SYSTEM_PKGS[@]}" | awk '!seen[$0]++')
